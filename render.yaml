@@ -1,0 +1,17 @@
+# Render Blueprint — auto-deploys the frontend on every push to main.
+# Setup once: Render dashboard → New → Blueprint → connect this repo.
+services:
+  - type: web
+    name: contract-obligation-extractor
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    autoDeploy: true
+    branch: main
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production

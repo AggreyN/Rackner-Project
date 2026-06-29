@@ -1,0 +1,22 @@
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Node (frontend has its own .gitignore too)
+node_modules/
+
+# Python (backend — Aggrey)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data samples are large/binary — keep the dir, ignore the PDFs
+data/samples/*.pdf
