@@ -1,0 +1,17 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environment / secrets — NEVER commit these
+.env
+
+# Data — don't commit downloaded PDFs
+data/samples/*
+!data/samples/.gitkeep
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

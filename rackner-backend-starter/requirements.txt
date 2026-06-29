@@ -1,0 +1,20 @@
+# Rackner Contract Obligation Extractor — backend dependencies
+# Install with:  pip install -r requirements.txt
+
+# --- Database (Weeks 4-6) ---
+SQLAlchemy>=2.0
+psycopg[binary]>=3.1      # PostgreSQL driver
+alembic>=1.13             # database migrations
+python-dotenv>=1.0        # loads your .env file
+
+# --- PDF parsing & ingestion (Weeks 2-3, 10) ---
+PyMuPDF>=1.24             # imported as "fitz" — main PDF text extractor
+pdfplumber>=0.11          # tables + character-level coordinates
+
+# --- API (Week 8) ---
+fastapi>=0.110
+uvicorn[standard]>=0.29   # the server that runs FastAPI
+
+# --- OCR fallback (Week 10 — uncomment when you get there) ---
+# pytesseract>=0.3.10     # also requires: brew install tesseract
+# pdf2image>=1.17         # also requires: brew install poppler
