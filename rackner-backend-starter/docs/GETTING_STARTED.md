@@ -95,7 +95,7 @@ pip install -r requirements.txt
 
 ## Step 4 — Create your database
 
-```bash
+```bashg
 createdb rackner
 ```
 
