@@ -1,0 +1,19 @@
+version: 1
+applications:
+  - appRoot: frontend        # our app folder (same idea as render's rootDir)
+    frontend:                # Amplify's name for the "web build" phase — NOT our folder
+      phases:
+        preBuild:
+          commands:
+            - npm ci         # install dependencies
+        build:
+          commands:
+            - npm run build  # produce the production build
+      artifacts:
+        baseDirectory: .next # where Next.js puts the built site
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+          - .next/cache/**/*  # makes future builds faster

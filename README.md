@@ -30,5 +30,5 @@ Stack: Next.js 16 (App Router) · TypeScript · Tailwind CSS · ESLint.
 
 ## Deployment
 
-Auto-deploys to **Render** on every push to `main` (see `render.yaml`).
+Auto-deploys to **AWS Amplify Hosting** on every push to `main` (see `amplify.yml`).
 CI (`.github/workflows/ci.yml`) runs lint + build on every pull request.
