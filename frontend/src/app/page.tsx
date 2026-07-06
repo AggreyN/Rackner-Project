@@ -1,3 +1,7 @@
+import { Hero } from "@/components/Hero";
+import { HighlightDemo } from "@/components/HighlightDemo";
+
+
 export default function Home() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-6 text-center dark:bg-zinc-950">
@@ -14,6 +18,7 @@ export default function Home() {
       <p className="mt-8 text-sm text-zinc-400 dark:text-zinc-500">
         Week 1 — foundation is live. The split-pane viewer is coming soon.
       </p>
+        <HighlightDemo />
     </main>
   );
 }
