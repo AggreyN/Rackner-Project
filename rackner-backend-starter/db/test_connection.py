@@ -9,6 +9,14 @@ Expected output:
     PostgreSQL 16.x ...
 """
 
+# Make the project root importable so `db.database` resolves even when this file
+# is run directly as `python db/test_connection.py` (Python otherwise only puts
+# the db/ folder on the path, not the project root).
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from sqlalchemy import text
 
 from db.database import engine, DATABASE_URL
@@ -32,9 +40,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # Allow running as `python db/test_connection.py` from the project root.
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     main()

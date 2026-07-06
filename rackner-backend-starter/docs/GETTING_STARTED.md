@@ -114,7 +114,8 @@ The default `.env` already points at your local `rackner` database, so you don't
 ## Step 5 — The payoff: connect Python to the database
 
 ```bash
-python db/test_connection.py en```
+python db/test_connection.py
+```
 
 If everything worked, you'll see something like:
 
