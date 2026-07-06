@@ -75,9 +75,10 @@ Rackner-Project/
 
 ## Step 3 — Create a Python virtual environment
 
-A "venv" is an isolated box for this project's Python packages so they don't clash with anything else.
+A "venv" is an isolated box for this project's Python packages so they don't clash with anything else. We keep **one** venv, inside the `rackner-backend-starter/` folder, and run everything from there.
 
 ```bash
+cd rackner-backend-starter   # all backend commands run from this folder
 python3 -m venv venv
 source venv/bin/activate     # you'll run this every time you work on the project
 ```
