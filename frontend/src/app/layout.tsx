@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Contract Obligation Extractor",
+  title: "Team Anvil — Federal Document Intelligence",
   description:
-    "Turn a dense government contract into a plain-English, source-cited, deadline-aware obligation checklist.",
+    "One federal document, read once — every team gets the answers it needs. Upload a contract or solicitation, choose your role, work the cited obligation register.",
 };
 
 export default function RootLayout({
