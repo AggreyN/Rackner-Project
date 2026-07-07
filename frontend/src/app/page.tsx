@@ -16,13 +16,20 @@ import type { RoleInfo } from "@/lib/types";
 export default function Home() {
   const router = useRouter();
   const [roles, setRoles] = useState<RoleInfo[]>([]);
+  const [rolesError, setRolesError] = useState(false);
   const [role, setRole] = useState<string | null>(null);
   const [docId, setDocId] = useState<number | null>(null);
   const intake = useDocumentIntake(setDocId);
 
-  useEffect(() => {
-    getRoles().then(setRoles).catch(() => setRoles([]));
-  }, []);
+  const loadRoles = () => {
+    getRoles()
+      .then((r) => {
+        setRoles(r);
+        setRolesError(false);
+      })
+      .catch(() => setRolesError(true));
+  };
+  useEffect(loadRoles, []);
 
   useEffect(() => {
     if (docId && role) router.push(`/workspace/${docId}?role=${role}`);
@@ -72,6 +79,14 @@ export default function Home() {
             2 · Choose your role
           </h2>
           <RolePicker roles={roles} selected={role} onSelect={setRole} />
+          {rolesError && (
+            <p className="mt-2 text-sm text-[#9a6a1e]">
+              Couldn&apos;t load the role list.{" "}
+              <button onClick={loadRoles} className="underline underline-offset-2">
+                Retry
+              </button>
+            </p>
+          )}
           {!docId && role && (
             <p className="mt-2 text-sm text-[#51606f]">
               Role selected — upload a document above to continue.

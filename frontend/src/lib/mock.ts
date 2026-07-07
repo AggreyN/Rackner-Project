@@ -313,10 +313,28 @@ interface MockDoc {
 const docs = new Map<number, MockDoc>();
 let nextDocId = 1;
 
+// Review status survives reloads (localStorage), like a real register would.
+const STATUS_KEY = "anvil-obligation-status";
+
+function savedStatuses(): Record<string, Obligation["status"]> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(STATUS_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+function persistStatuses() {
+  if (typeof window === "undefined") return;
+  const map = Object.fromEntries(obligations.map((o) => [o.id, o.status]));
+  window.localStorage.setItem(STATUS_KEY, JSON.stringify(map));
+}
+
 const obligations: Obligation[] = SEEDS.map((s, i) => ({
   ...s,
   id: i + 1,
-  status: "open",
+  status: savedStatuses()[String(i + 1)] ?? "open",
   relevant_to_role: true,
 }));
 
@@ -431,5 +449,8 @@ export async function getObligations(
 export async function updateObligationStatus(id: number, status: string): Promise<void> {
   await delay(150);
   const o = obligations.find((x) => x.id === id);
-  if (o) o.status = status as Obligation["status"];
+  if (o) {
+    o.status = status as Obligation["status"];
+    persistStatuses();
+  }
 }

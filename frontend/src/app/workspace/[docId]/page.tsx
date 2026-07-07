@@ -10,8 +10,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import ObligationList from "@/components/ObligationList";
 import DocumentPane from "@/components/DocumentPane";
-import { documentPdfUrl, getDocument, getObligations, getRoles } from "@/lib/api";
-import type { DocumentMeta, ObligationGroups, RoleInfo } from "@/lib/types";
+import {
+  documentPdfUrl,
+  getDocument,
+  getObligations,
+  getRoles,
+  updateObligationStatus,
+} from "@/lib/api";
+import type { DocumentMeta, Obligation, ObligationGroups, RoleInfo } from "@/lib/types";
 
 // useSearchParams needs a Suspense boundary at build time.
 export default function Workspace(props: { params: Promise<{ docId: string }> }) {
@@ -35,6 +41,8 @@ function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
   const [citePage, setCitePage] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [mobilePane, setMobilePane] = useState<"register" | "document">("register");
+  const [obsError, setObsError] = useState<string | null>(null);
+  const [statusOverrides, setStatusOverrides] = useState<Record<number, Obligation["status"]>>({});
 
   useEffect(() => {
     getRoles().then(setRoles).catch(() => {});
@@ -65,10 +73,26 @@ function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
 
   const refresh = useCallback(() => {
     if (!ready) return;
-    getObligations(docId, role, groupBy).then(setData).catch(() => {});
+    getObligations(docId, role, groupBy)
+      .then((d) => {
+        setData(d);
+        setObsError(null);
+      })
+      .catch((e) => setObsError(String(e instanceof Error ? e.message : e)));
   }, [docId, role, groupBy, ready]);
 
   useEffect(refresh, [refresh]);
+
+  // Optimistic status change; rolls back if the PATCH fails.
+  const changeStatus = useCallback(
+    (id: number, next: Obligation["status"], prev: Obligation["status"]) => {
+      setStatusOverrides((m) => ({ ...m, [id]: next }));
+      updateObligationStatus(id, next).catch(() =>
+        setStatusOverrides((m) => ({ ...m, [id]: prev }))
+      );
+    },
+    []
+  );
 
   const cite = useCallback((page: number | null) => {
     setCitePage(page);
@@ -179,9 +203,14 @@ function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
           <div className={registerClasses}>
             <ObligationList
               data={data}
+              error={obsError}
+              onRetry={refresh}
               groupBy={groupBy}
               onGroupBy={setGroupBy}
               onCite={cite}
+              statusOverrides={statusOverrides}
+              onStatusChange={changeStatus}
+              exportName={`obligation-register-${(doc?.filename ?? `document-${docId}`).replace(/\.pdf$/i, "")}.csv`}
             />
           </div>
           <div className={documentClasses}>

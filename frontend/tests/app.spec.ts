@@ -38,7 +38,7 @@ test.describe("workspace register", () => {
   test("role switcher changes the role banner and dimming", async ({ page }) => {
     await page.goto("/workspace/1?role=security");
     await expect(page.getByText("Which clauses apply, and what must we prove?")).toBeVisible();
-    await expect(page.getByText(/dimmed/)).toBeVisible();
+    await expect(page.getByText(/for your role/)).toBeVisible();
     await page.locator("#role-switcher").selectOption("proposal");
     await expect(
       page.getByText("What do we write, and how will it be evaluated?")
