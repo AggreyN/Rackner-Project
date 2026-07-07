@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
+/* Flat navy & white — a serious government tool, not an AI demo.
+   Light scheme only, no gradients, hairline borders everywhere. */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+  --background: #f5f7f9; /* WASH */
+  --foreground: #16324f; /* NAVY */
 }
 
 @theme inline {
@@ -12,15 +16,26 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* The citation glow — the exact cited sentence lights up in the text layer,
+   pulses twice to draw the eye, then settles into a steady highlight. */
+mark.anvil-glow {
+  background-color: rgba(245, 200, 92, 0.55);
+  color: transparent; /* text-layer glyphs stay invisible; the canvas shows the real text */
+  border-radius: 1px;
+  animation: anvil-glow-pulse 1.1s ease-in-out 2;
+}
+
+@keyframes anvil-glow-pulse {
+  0%, 100% {
+    background-color: rgba(245, 200, 92, 0.55);
+  }
+  50% {
+    background-color: rgba(154, 106, 30, 0.85);
+  }
 }

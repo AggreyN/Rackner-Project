@@ -3,7 +3,7 @@
 // "Choose your role, get your answers" — the core of the intelligence-layer
 // pitch. Each card shows the question that team asks of a document.
 
-import type { RoleInfo } from "../lib/types";
+import type { RoleInfo } from "@/lib/types";
 
 interface Props {
   roles: RoleInfo[];

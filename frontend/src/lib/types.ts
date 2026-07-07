@@ -51,6 +51,14 @@ export interface DocumentMeta {
   expires_at: string | null;
 }
 
+// A citation click: which page to jump to and which sentence should glow.
+// nonce lets re-clicking the same obligation re-trigger the scroll/glow.
+export interface CiteTarget {
+  page: number;
+  quote: string | null;
+  nonce: number;
+}
+
 export const TIME_BUCKET_LABELS: Record<string, string> = {
   immediate: "Immediate (hours)",
   "30_days": "Within 30 days",

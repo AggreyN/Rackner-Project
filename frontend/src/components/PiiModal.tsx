@@ -3,7 +3,7 @@
 // Security requirement: if PII is detected pre-upload, the user must
 // explicitly confirm before the file is stored. Flat navy/white, no gradients.
 
-import type { PiiFinding } from "../lib/types";
+import type { PiiFinding } from "@/lib/types";
 
 interface Props {
   findings: PiiFinding[];
@@ -13,7 +13,7 @@ interface Props {
 
 export default function PiiModal({ findings, onConfirm, onCancel }: Props) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#16324f]/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#16324f]/40 p-4">
       <div className="w-full max-w-md border border-[#d7dee6] bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-[#16324f]">
           Sensitive information detected

@@ -1,25 +1,39 @@
 "use client";
 
-// The right pane: the source document itself, collapsible (modeled on
-// Claude's dual view — work on the left, source on the right).
-// v1 uses the browser's native PDF viewer via <iframe>; citation clicks
-// jump it to the cited page with #page=N. Upgrade path (Wk7): react-pdf
-// with span-level highlight boxes — swap only this component.
+// The right pane: the source document, collapsible (Claude-style dual view).
+// Week 7: react-pdf with span-level highlight — click an obligation and the
+// exact cited sentence glows. If pdf.js can't load (odd browser, worker
+// blocked), we degrade to the v1 iframe viewer so the demo never dies.
+
+import dynamic from "next/dynamic";
+import { useState } from "react";
+import type { CiteTarget } from "@/lib/types";
+
+const PdfViewer = dynamic(() => import("./PdfViewer"), {
+  ssr: false,
+  loading: () => (
+    <p className="p-6 text-sm text-[#51606f]" role="status">
+      Loading the document viewer…
+    </p>
+  ),
+});
 
 interface Props {
   pdfUrl: string;
-  page: number | null;       // set by "View in document" clicks
+  cite: CiteTarget | null;   // set by "View in document" clicks
   collapsed: boolean;
   onToggle: () => void;
 }
 
-export default function DocumentPane({ pdfUrl, page, collapsed, onToggle }: Props) {
+export default function DocumentPane({ pdfUrl, cite, collapsed, onToggle }: Props) {
+  const [fallback, setFallback] = useState(false);
+
   if (collapsed) {
     return (
       <button
         onClick={onToggle}
         title="Show document"
-        className="flex h-full w-10 items-center justify-center border-l border-[#d7dee6] bg-white text-[#16324f] hover:bg-[#f5f7f9]"
+        className="flex h-full w-full items-center justify-center border-l border-[#d7dee6] bg-white text-[#16324f] hover:bg-[#f5f7f9]"
       >
         <span className="rotate-180 text-xs tracking-widest [writing-mode:vertical-rl]">
           SHOW DOCUMENT
@@ -28,23 +42,27 @@ export default function DocumentPane({ pdfUrl, page, collapsed, onToggle }: Prop
     );
   }
 
-  const src = page ? `${pdfUrl}#page=${page}` : pdfUrl;
+  const iframeSrc = cite?.page ? `${pdfUrl}#page=${cite.page}` : pdfUrl;
 
   return (
-    <div className="flex h-full flex-1 flex-col border-l border-[#d7dee6] bg-white">
+    <div className="flex h-full w-full flex-col border-[#d7dee6] bg-white lg:border-l">
       <div className="flex items-center justify-between border-b border-[#d7dee6] px-4 py-2">
         <span className="text-xs font-semibold uppercase tracking-widest text-[#51606f]">
-          Source document {page ? `· p.${page}` : ""}
+          Source document {cite?.page ? `· p.${cite.page}` : ""}
         </span>
         <button
           onClick={onToggle}
-          className="text-xs text-[#16324f] underline underline-offset-2 hover:text-[#0f2438]"
+          className="hidden text-xs text-[#16324f] underline underline-offset-2 hover:text-[#0f2438] lg:block"
         >
           Collapse
         </button>
       </div>
-      {/* key={src} forces the iframe to honor page jumps on re-cite */}
-      <iframe key={src} src={src} title="Source document" className="h-full w-full" />
+      {fallback ? (
+        // key forces the iframe to honor page jumps on re-cite
+        <iframe key={iframeSrc} src={iframeSrc} title="Source document" className="h-full w-full" />
+      ) : (
+        <PdfViewer pdfUrl={pdfUrl} cite={cite} onError={() => setFallback(true)} />
+      )}
     </div>
   );
 }
