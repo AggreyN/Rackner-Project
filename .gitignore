@@ -21,3 +21,4 @@ venv/
 # Sample solicitation PDFs are committed as shared team fixtures.
 # Only the machine-local search cache is ignored.
 data/samples/_search-cache.json
+
