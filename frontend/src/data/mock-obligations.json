@@ -1,0 +1,50 @@
+[
+  {
+    "id": "ob-1",
+    "text": "The contractor must report any cyber incident to the Contracting Officer within 72 hours of discovery.",
+    "type": "Reporting",
+    "deadline": "Within 72 hours of discovery",
+    "responsibleParty": "Contractor",
+    "sourceClauseId": "252.204-7012",
+    "verbatimQuote": "the Contractor shall rapidly report cyber incidents to DoD within 72 hours of discovery of any cyber incident",
+    "page": 12,
+    "confidence": 0.97,
+    "status": "pending"
+  },
+  {
+    "id": "ob-2",
+    "text": "Submit a monthly progress report no later than the fifth business day of each month.",
+    "type": "Deliverable",
+    "deadline": "5th business day, monthly",
+    "responsibleParty": "Contractor",
+    "sourceClauseId": "52.242-15",
+    "verbatimQuote": "a monthly progress report shall be submitted no later than the fifth business day of the following month",
+    "page": 8,
+    "confidence": 0.91,
+    "status": "pending"
+  },
+  {
+    "id": "ob-3",
+    "text": "Maintain commercial general liability insurance of at least $1,000,000 for the duration of the contract.",
+    "type": "Compliance",
+    "deadline": "Duration of contract",
+    "responsibleParty": "Contractor",
+    "sourceClauseId": "52.228-5",
+    "verbatimQuote": "the Contractor shall maintain insurance in an amount not less than $1,000,000 per occurrence",
+    "page": 20,
+    "confidence": 0.84,
+    "status": "pending"
+  },
+  {
+    "id": "ob-4",
+    "text": "Deliver all technical data with unlimited rights unless otherwise negotiated before award.",
+    "type": "Deliverable",
+    "deadline": null,
+    "responsibleParty": "Contractor",
+    "sourceClauseId": "252.227-7013",
+    "verbatimQuote": "the Government shall have unlimited rights in technical data delivered under this contract",
+    "page": 27,
+    "confidence": 0.72,
+    "status": "pending"
+  }
+]

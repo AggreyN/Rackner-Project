@@ -1,0 +1,23 @@
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Node (frontend has its own .gitignore too)
+node_modules/
+
+# Python (backend — Aggrey)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Sample solicitation PDFs are committed as shared team fixtures.
+# Only the machine-local search cache is ignored.
+data/samples/_search-cache.json
