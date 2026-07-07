@@ -2,6 +2,8 @@
 
 // The workspace: obligations & details on the left, source document on the
 // right (collapsible) — modeled on Claude's dual view.
+// Below lg the panes become a Register / Document toggle; citing an
+// obligation flips to the document automatically.
 
 import { Suspense, use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -32,6 +34,7 @@ function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
   const [groupBy, setGroupBy] = useState("time");
   const [citePage, setCitePage] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [mobilePane, setMobilePane] = useState<"register" | "document">("register");
 
   useEffect(() => {
     getRoles().then(setRoles).catch(() => {});
@@ -44,16 +47,28 @@ function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
 
   useEffect(refresh, [refresh]);
 
+  const cite = useCallback((page: number | null) => {
+    setCitePage(page);
+    if (page != null) setMobilePane("document"); // jump to the source on phones
+  }, []);
+
   const activeRole = roles.find((r) => r.key === role);
 
+  const registerClasses =
+    (mobilePane === "register" ? "flex w-full " : "hidden ") +
+    (collapsed ? "lg:flex lg:w-auto lg:flex-1" : "lg:flex lg:w-[46%] lg:min-w-[380px]");
+  const documentClasses =
+    (mobilePane === "document" ? "flex w-full " : "hidden ") +
+    (collapsed ? "lg:flex lg:w-10 lg:shrink-0" : "lg:flex lg:flex-1 lg:min-w-0");
+
   return (
-    <main className="flex h-screen flex-col bg-[#f5f7f9]">
-      <header className="flex items-center justify-between border-b border-[#d7dee6] bg-white px-4 py-2">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="text-sm font-semibold text-[#16324f]">
+    <main className="flex h-dvh flex-col bg-[#f5f7f9]">
+      <header className="flex items-center justify-between gap-3 border-b border-[#d7dee6] bg-white px-4 py-2">
+        <div className="flex min-w-0 items-center gap-4">
+          <Link href="/" className="shrink-0 text-sm font-semibold text-[#16324f]">
             ← Team Anvil
           </Link>
-          <span className="text-xs text-[#51606f]">
+          <span className="hidden truncate text-xs text-[#51606f] sm:block">
             {doc?.filename ?? `Document #${docId}`}
             {doc?.expires_at && (
               <> · auto-deletes {new Date(doc.expires_at).toLocaleDateString()}</>
@@ -61,12 +76,15 @@ function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-[#51606f]">Viewing as</label>
+        <div className="flex shrink-0 items-center gap-2">
+          <label htmlFor="role-switcher" className="hidden text-xs text-[#51606f] sm:block">
+            Viewing as
+          </label>
           <select
+            id="role-switcher"
             value={role ?? ""}
             onChange={(e) => setRole(e.target.value || null)}
-            className="border border-[#d7dee6] bg-white px-2 py-1 text-xs text-[#16324f]"
+            className="max-w-44 border border-[#d7dee6] bg-white px-2 py-1 text-xs text-[#16324f]"
           >
             <option value="">All roles</option>
             {roles.map((r) => (
@@ -80,25 +98,45 @@ function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
 
       {activeRole && (
         <div className="border-b border-[#d7dee6] bg-[#16324f] px-4 py-1.5 text-xs text-white/85">
-          {activeRole.label}: {activeRole.question}
+          <span className="font-semibold">{activeRole.label}</span>: {activeRole.question}
         </div>
       )}
 
+      {/* Phone-width pane toggle — the split pane needs real estate */}
+      <div className="flex border-b border-[#d7dee6] bg-white lg:hidden">
+        {(["register", "document"] as const).map((p) => (
+          <button
+            key={p}
+            onClick={() => setMobilePane(p)}
+            className={
+              "flex-1 py-2 text-xs font-semibold uppercase tracking-widest " +
+              (mobilePane === p
+                ? "border-b-2 border-[#16324f] text-[#16324f]"
+                : "text-[#51606f]")
+            }
+          >
+            {p === "register" ? "Register" : "Document"}
+          </button>
+        ))}
+      </div>
+
       <div className="flex min-h-0 flex-1">
-        <div className={collapsed ? "flex-1" : "w-[46%] min-w-[380px]"}>
+        <div className={registerClasses}>
           <ObligationList
             data={data}
             groupBy={groupBy}
             onGroupBy={setGroupBy}
-            onCite={setCitePage}
+            onCite={cite}
           />
         </div>
-        <DocumentPane
-          pdfUrl={documentPdfUrl(docId)}
-          page={citePage}
-          collapsed={collapsed}
-          onToggle={() => setCollapsed(!collapsed)}
-        />
+        <div className={documentClasses}>
+          <DocumentPane
+            pdfUrl={documentPdfUrl(docId)}
+            page={citePage}
+            collapsed={collapsed}
+            onToggle={() => setCollapsed(!collapsed)}
+          />
+        </div>
       </div>
     </main>
   );
