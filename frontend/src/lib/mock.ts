@@ -328,6 +328,10 @@ function docMeta(id: number): DocumentMeta {
     // Unknown id (e.g. hard refresh) — behave like the seeded demo document.
     return { id, filename: DEMO_FILENAME, status: "ready", num_pages: 5, expires_at: expiry(Date.now()) };
   }
+  // Deterministic failure hook for testing the error path.
+  if (d.meta.filename.toLowerCase().includes("fail")) {
+    return { ...d.meta, status: "failed" };
+  }
   const ready = Date.now() - d.uploadedAt > PROCESSING_MS;
   return { ...d.meta, status: ready ? "ready" : "processing" };
 }

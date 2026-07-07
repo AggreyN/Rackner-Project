@@ -38,12 +38,35 @@ function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
 
   useEffect(() => {
     getRoles().then(setRoles).catch(() => {});
-    getDocument(docId).then(setDoc).catch(() => {});
+  }, []);
+
+  // Poll the document until the pipeline finishes reading it.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function load() {
+      try {
+        const d = await getDocument(docId);
+        if (cancelled) return;
+        setDoc(d);
+        if (d.status === "processing") timer = setTimeout(load, 1000);
+      } catch {
+        if (!cancelled) setDoc({ id: docId, filename: `Document #${docId}`, status: "failed", num_pages: null, expires_at: null });
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [docId]);
 
+  const ready = doc?.status === "ready";
+
   const refresh = useCallback(() => {
+    if (!ready) return;
     getObligations(docId, role, groupBy).then(setData).catch(() => {});
-  }, [docId, role, groupBy]);
+  }, [docId, role, groupBy, ready]);
 
   useEffect(refresh, [refresh]);
 
@@ -120,24 +143,57 @@ function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
         ))}
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className={registerClasses}>
-          <ObligationList
-            data={data}
-            groupBy={groupBy}
-            onGroupBy={setGroupBy}
-            onCite={cite}
-          />
+      {doc?.status === "failed" ? (
+        <div className="flex flex-1 items-center justify-center p-8">
+          <div className="max-w-md border border-[#d7dee6] bg-white p-6 text-center">
+            <h2 className="text-sm font-semibold text-[#16324f]">
+              We couldn&apos;t read this document
+            </h2>
+            <p className="mt-2 text-sm text-[#51606f]">
+              Processing failed — the file may be corrupted, image-only, or password
+              protected. Try re-downloading it, or upload a different copy.
+            </p>
+            <Link
+              href="/"
+              className="mt-4 inline-block bg-[#16324f] px-4 py-2 text-sm text-white hover:bg-[#0f2438]"
+            >
+              Back to upload
+            </Link>
+          </div>
         </div>
-        <div className={documentClasses}>
-          <DocumentPane
-            pdfUrl={documentPdfUrl(docId)}
-            page={citePage}
-            collapsed={collapsed}
-            onToggle={() => setCollapsed(!collapsed)}
-          />
+      ) : !ready ? (
+        <div className="flex flex-1 items-center justify-center p-8" role="status">
+          <div className="max-w-md border border-[#d7dee6] bg-white p-6 text-center">
+            <p className="text-sm font-semibold text-[#16324f]">
+              <span className="mr-2 inline-block h-2 w-2 animate-pulse bg-[#16324f]" aria-hidden />
+              Reading the document…
+            </p>
+            <p className="mt-2 text-sm text-[#51606f]">
+              Extracting pages, segmenting clauses, and pulling out every obligation
+              with its source citation. This usually takes under a minute.
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <div className={registerClasses}>
+            <ObligationList
+              data={data}
+              groupBy={groupBy}
+              onGroupBy={setGroupBy}
+              onCite={cite}
+            />
+          </div>
+          <div className={documentClasses}>
+            <DocumentPane
+              pdfUrl={documentPdfUrl(docId)}
+              page={citePage}
+              collapsed={collapsed}
+              onToggle={() => setCollapsed(!collapsed)}
+            />
+          </div>
+        </div>
+      )}
     </main>
   );
 }
