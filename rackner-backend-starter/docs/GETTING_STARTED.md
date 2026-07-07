@@ -32,6 +32,8 @@ brew services start postgresql@16
 
 **4. Make sure VS Code's `code` command works:** open VS Code → Cmd+Shift+P → type "Shell Command: Install 'code' command in PATH" → Enter. Now you can type `code .` to open a folder.
 
+**5. Enable Python environment detection in VS Code:** open VS Code settings (Cmd+,) → search for `python.terminal.useEnvFile` → check the box. This ensures your venv is automatically activated in the integrated terminal.
+
 ---
 
 ## Step 1 — Get the repo onto your machine

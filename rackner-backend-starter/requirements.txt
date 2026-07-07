@@ -18,3 +18,9 @@ uvicorn[standard]>=0.29   # the server that runs FastAPI
 # --- OCR fallback (Week 10 — uncomment when you get there) ---
 # pytesseract>=0.3.10     # also requires: brew install tesseract
 # pdf2image>=1.17         # also requires: brew install poppler
+
+# ADD these to the existing requirements.txt (don't remove anything you have)
+python-multipart>=0.0.9    # FastAPI file uploads
+passlib[bcrypt]>=1.7.4     # password hashing (auth module)
+PyJWT>=2.8                 # session tokens (auth module)
+pydantic[email]>=2.7       # email validation on auth endpoints
