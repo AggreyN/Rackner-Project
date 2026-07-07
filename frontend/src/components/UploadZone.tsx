@@ -4,8 +4,8 @@
 // pick file → POST /documents/scan → (PII? show modal) → POST /documents.
 
 import { useRef, useState } from "react";
-import { scanDocument, uploadDocument } from "../lib/api";
-import type { PiiFinding } from "../lib/types";
+import { scanDocument, uploadDocument } from "@/lib/api";
+import type { PiiFinding } from "@/lib/types";
 import PiiModal from "./PiiModal";
 
 interface Props {

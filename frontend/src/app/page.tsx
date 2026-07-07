@@ -5,10 +5,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import UploadZone from "../components/UploadZone";
-import RolePicker from "../components/RolePicker";
-import { getRoles } from "../lib/api";
-import type { RoleInfo } from "../lib/types";
+import UploadZone from "@/components/UploadZone";
+import RolePicker from "@/components/RolePicker";
+import { getRoles } from "@/lib/api";
+import type { RoleInfo } from "@/lib/types";
 
 export default function Home() {
   const router = useRouter();
@@ -36,7 +36,9 @@ export default function Home() {
               One document, read once. Every team gets its answers.
             </p>
           </div>
-          <span className="text-xs text-[#51606f]">Rackner AI Innovation Fellowship</span>
+          <span className="hidden text-xs text-[#51606f] sm:block">
+            Rackner AI Innovation Fellowship
+          </span>
         </div>
       </header>
 

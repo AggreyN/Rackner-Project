@@ -3,14 +3,24 @@
 // The workspace: obligations & details on the left, source document on the
 // right (collapsible) — modeled on Claude's dual view.
 
-import { use, useCallback, useEffect, useState } from "react";
+import { Suspense, use, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import ObligationList from "../../../components/ObligationList";
-import DocumentPane from "../../../components/DocumentPane";
-import { documentPdfUrl, getDocument, getObligations, getRoles } from "../../../lib/api";
-import type { DocumentMeta, ObligationGroups, RoleInfo } from "../../../lib/types";
+import ObligationList from "@/components/ObligationList";
+import DocumentPane from "@/components/DocumentPane";
+import { documentPdfUrl, getDocument, getObligations, getRoles } from "@/lib/api";
+import type { DocumentMeta, ObligationGroups, RoleInfo } from "@/lib/types";
 
-export default function Workspace({ params }: { params: Promise<{ docId: string }> }) {
+// useSearchParams needs a Suspense boundary at build time.
+export default function Workspace(props: { params: Promise<{ docId: string }> }) {
+  return (
+    <Suspense>
+      <WorkspaceInner {...props} />
+    </Suspense>
+  );
+}
+
+function WorkspaceInner({ params }: { params: Promise<{ docId: string }> }) {
   const { docId: docIdStr } = use(params);
   const docId = Number(docIdStr);
   const search = useSearchParams();
@@ -40,9 +50,9 @@ export default function Workspace({ params }: { params: Promise<{ docId: string 
     <main className="flex h-screen flex-col bg-[#f5f7f9]">
       <header className="flex items-center justify-between border-b border-[#d7dee6] bg-white px-4 py-2">
         <div className="flex items-center gap-4">
-          <a href="/" className="text-sm font-semibold text-[#16324f]">
+          <Link href="/" className="text-sm font-semibold text-[#16324f]">
             ← Team Anvil
-          </a>
+          </Link>
           <span className="text-xs text-[#51606f]">
             {doc?.filename ?? `Document #${docId}`}
             {doc?.expires_at && (

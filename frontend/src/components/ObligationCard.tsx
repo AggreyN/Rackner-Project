@@ -4,8 +4,8 @@
 // Clicking "View in document" tells the workspace to jump the PDF pane
 // to the cited page — the grounding moment.
 
-import type { Obligation } from "../lib/types";
-import { updateObligationStatus } from "../lib/api";
+import type { Obligation } from "@/lib/types";
+import { updateObligationStatus } from "@/lib/api";
 import { useState } from "react";
 
 interface Props {

@@ -3,8 +3,8 @@
 // The left pane: obligations grouped by time / category / type,
 // filtered-and-sorted for the chosen role.
 
-import type { ObligationGroups } from "../lib/types";
-import { TIME_BUCKET_LABELS } from "../lib/types";
+import type { ObligationGroups } from "@/lib/types";
+import { TIME_BUCKET_LABELS } from "@/lib/types";
 import ObligationCard from "./ObligationCard";
 
 interface Props {
