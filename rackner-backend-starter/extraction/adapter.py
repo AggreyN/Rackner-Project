@@ -72,7 +72,7 @@ def _mock_extract(chunk_text: str) -> list[dict]:
 def extract_obligations(chunk_text: str) -> list[dict]:
     """Route to the real extractor when available, else the mock."""
     try:
-        from extraction.extractor import extract as kaliza_extract  # Kaliza's module
+        from extraction.extractor import extract as kaliza_extract  # type: ignore[import-not-found]  # Kaliza's module (added later)
         if ANTHROPIC_API_KEY:
             return [enrich(o) for o in kaliza_extract(chunk_text)]
     except ImportError:
