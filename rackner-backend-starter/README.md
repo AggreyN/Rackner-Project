@@ -1,4 +1,4 @@
-# Team Anvil — Backend (Week 8: Integration freeze)
+# Team Anvil — Backend
 
 The backend for **Team Anvil**, a Federal Document Intelligence Layer: upload a
 government solicitation, pick your corporate role, and get a plain-English,
@@ -178,6 +178,11 @@ ingestion/CODE_WALKTHROUGH.md   extraction/CODE_WALKTHROUGH.md
 db/CODE_WALKTHROUGH.md          pipeline/CODE_WALKTHROUGH.md
 core/CODE_WALKTHROUGH.md        api/CODE_WALKTHROUGH.md
 ```
+
+## Week 9 — Demo Day
+
+Measured numbers, talking points, and the gaps worth owning out loud:
+**[DEMO_NOTES.md](DEMO_NOTES.md)**. Bug fixes only from here.
 
 ## Quick start
 
