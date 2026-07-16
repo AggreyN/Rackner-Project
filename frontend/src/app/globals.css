@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
+/* Flat navy & white — a serious government tool, not an AI demo.
+   Light scheme only, no gradients, hairline borders everywhere. */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+  --background: #f5f7f9; /* WASH */
+  --foreground: #16324f; /* NAVY */
 }
 
 @theme inline {
@@ -12,15 +16,8 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }

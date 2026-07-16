@@ -5,6 +5,8 @@
 // v1 uses the browser's native PDF viewer via <iframe>; citation clicks
 // jump it to the cited page with #page=N. Upgrade path (Wk7): react-pdf
 // with span-level highlight boxes — swap only this component.
+// Sizing/visibility is owned by the workspace wrapper; collapse is a
+// desktop-only affordance (phones switch panes instead).
 
 interface Props {
   pdfUrl: string;
@@ -19,7 +21,7 @@ export default function DocumentPane({ pdfUrl, page, collapsed, onToggle }: Prop
       <button
         onClick={onToggle}
         title="Show document"
-        className="flex h-full w-10 items-center justify-center border-l border-[#d7dee6] bg-white text-[#16324f] hover:bg-[#f5f7f9]"
+        className="flex h-full w-full items-center justify-center border-l border-[#d7dee6] bg-white text-[#16324f] hover:bg-[#f5f7f9]"
       >
         <span className="rotate-180 text-xs tracking-widest [writing-mode:vertical-rl]">
           SHOW DOCUMENT
@@ -31,14 +33,14 @@ export default function DocumentPane({ pdfUrl, page, collapsed, onToggle }: Prop
   const src = page ? `${pdfUrl}#page=${page}` : pdfUrl;
 
   return (
-    <div className="flex h-full flex-1 flex-col border-l border-[#d7dee6] bg-white">
+    <div className="flex h-full w-full flex-col border-[#d7dee6] bg-white lg:border-l">
       <div className="flex items-center justify-between border-b border-[#d7dee6] px-4 py-2">
         <span className="text-xs font-semibold uppercase tracking-widest text-[#51606f]">
           Source document {page ? `· p.${page}` : ""}
         </span>
         <button
           onClick={onToggle}
-          className="text-xs text-[#16324f] underline underline-offset-2 hover:text-[#0f2438]"
+          className="hidden text-xs text-[#16324f] underline underline-offset-2 hover:text-[#0f2438] lg:block"
         >
           Collapse
         </button>

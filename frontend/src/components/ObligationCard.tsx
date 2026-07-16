@@ -2,29 +2,24 @@
 
 // One obligation: plain English up top, evidence underneath.
 // Clicking "View in document" tells the workspace to jump the PDF pane
-// to the cited page — the grounding moment.
+// to the cited page — the grounding moment. Status is controlled by the
+// workspace so header counts stay in sync (optimistic, rolls back on error).
 
 import type { Obligation } from "@/lib/types";
-import { updateObligationStatus } from "@/lib/api";
-import { useState } from "react";
 
 interface Props {
   obligation: Obligation;
+  status: Obligation["status"];
+  onStatusChange: (id: number, next: Obligation["status"], prev: Obligation["status"]) => void;
   onCite: (page: number | null) => void;
 }
 
-export default function ObligationCard({ obligation: o, onCite }: Props) {
-  const [status, setStatus] = useState(o.status);
+export default function ObligationCard({ obligation: o, status, onStatusChange, onCite }: Props) {
   const dim = !o.relevant_to_role;
 
-  async function cycleStatus() {
+  function cycleStatus() {
     const next = status === "open" ? "in-review" : status === "in-review" ? "done" : "open";
-    setStatus(next); // optimistic
-    try {
-      await updateObligationStatus(o.id, next);
-    } catch {
-      setStatus(status); // roll back on failure
-    }
+    onStatusChange(o.id, next, status);
   }
 
   return (
@@ -34,7 +29,14 @@ export default function ObligationCard({ obligation: o, onCite }: Props) {
       }
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="text-sm leading-relaxed text-[#16324f]">{o.plain_english_text}</p>
+        <p
+          className={
+            "text-sm leading-relaxed text-[#16324f] " +
+            (status === "done" ? "line-through decoration-[#51606f]/50" : "")
+          }
+        >
+          {o.plain_english_text}
+        </p>
         <button
           onClick={cycleStatus}
           title="Click to cycle open → in-review → done"
