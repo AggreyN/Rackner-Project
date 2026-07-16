@@ -1,38 +1,48 @@
-# Rackner Contract Obligation Extractor
+# Team Anvil — Backend (Week 1: Foundation)
 
-Turns dense government contracts/solicitations into a **plain-English, source-cited, deadline-aware checklist of obligations** — demoable entirely on public SAM.gov documents.
+The backend for **Team Anvil**, a Federal Document Intelligence Layer: upload a
+government solicitation, pick your corporate role, and get a plain-English,
+source-cited, deadline-aware register of everything your company is obligated to
+do. (Rackner AI Innovation Fellowship · Team 1 — Aggrey, Kaliza, Remy.)
 
-> Rackner AI Innovation Fellowship · Team 1 (Aggrey, Kaliza, Remy)
+This backend is built **one week at a time**. Each week is tagged and is a
+runnable superset of the week before it:
 
-## Quick start (backend)
+```bash
+git checkout week1     # Foundation — DB connection (you are here)
+git checkout week2     # Ingestion — PDF → text + word coordinates
+git checkout week3     # Schema + end-to-end pipeline + upload API
+# ... through week9 (Demo Day)
+git checkout main      # latest
+```
 
-New here? Read **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** — a step-by-step Week 1 setup for macOS.
+## Week 1 — what's here
+
+Just the foundation: a shared database connection and a smoke test.
+
+```
+db/database.py         SQLAlchemy engine + SessionLocal + Base
+db/test_connection.py  proves Python can reach your database
+.env.example           copy to .env and set DATABASE_URL
+requirements.txt        Week-1 dependency subset
+```
+
+## Quick start
 
 ```bash
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+
+# Option A — Postgres:
 createdb rackner
-python db/test_connection.py      # should print "✅ Connected to PostgreSQL!"
-```
+python db/test_connection.py      # -> "✅ Connected to PostgreSQL!"
 
-## Project structure
-
-```
-ingestion/   PDF parsing + clause segmentation   (Role 2 · Weeks 2-3)
-db/          connection, models, migrations       (Role 2 · Weeks 4-6)
-api/         FastAPI endpoints for the frontend    (Role 2 · Week 8)
-data/        sample SAM.gov PDFs for testing
-docs/        learning path + getting-started guide
-tests/       tests
+# Option B — no Postgres yet: set DATABASE_URL=sqlite:///./dev.db in .env
 ```
 
 ## Roles
 
-- **Role 1 — AI & Product Lead:** LLM extraction pipeline, prompts, JSON schema, eval set, product priorities.
-- **Role 2 — Data & Backend Lead (Aggrey):** ingestion, segmentation, Postgres schema, obligation tracking layer. *(This repo's backend.)*
-- **Role 3 — Full Stack & Infra Lead:** React/Next.js split-pane UI, SAM.gov API, deployment, the click-to-highlight demo.
-
-## Learning path
-
-See **[docs/LEARNING_PATH.md](docs/LEARNING_PATH.md)** for a week-by-week study plan mapped to the deadlines.
+- **Role 1 — AI & Product Lead (Kaliza):** LLM extraction, prompts, JSON schema, eval set.
+- **Role 2 — Data & Backend Lead (Aggrey):** ingestion, segmentation, Postgres, pipeline, API. *(This repo's backend.)*
+- **Role 3 — Full Stack & Infra Lead (Remy):** Next.js frontend, SAM.gov intake, AWS deploy, CI.

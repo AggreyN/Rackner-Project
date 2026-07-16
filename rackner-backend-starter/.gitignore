@@ -1,8 +1,13 @@
 # Python
 venv/
+.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Sync-daemon conflict copies. iCloud/Dropbox recreate deleted files as
+# "extract_pdf 2.py" — never commit those.
+* [0-9].*
 
 # Environment / secrets — NEVER commit these
 .env
