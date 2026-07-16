@@ -1,10 +1,14 @@
-# Team Anvil backend — Week 1 (Foundation) dependencies
+# Team Anvil backend — dependencies through Week 2 (Ingestion)
 # Install with:  pip install -r requirements.txt
 #
-# Each week adds to this file. A checkout of the `week1` tag only needs these.
+# Each week adds to this file. A checkout of the `week2` tag only needs these.
 
-# --- Database ---
+# --- Database (Week 1) ---
 SQLAlchemy>=2.0
 psycopg[binary]>=3.1      # PostgreSQL driver
 alembic>=1.13             # database migrations (wired up in Week 3)
 python-dotenv>=1.0        # loads your .env file
+
+# --- PDF parsing & ingestion (Week 2) ---
+PyMuPDF>=1.24             # imported as "fitz" — page text + word bounding boxes
+pdfplumber>=0.11          # tables + character-level coordinates, when needed
