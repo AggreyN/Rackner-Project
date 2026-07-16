@@ -1,4 +1,4 @@
-# Team Anvil — Backend (Week 4: Security features)
+# Team Anvil — Backend (Week 5: Role views + obligations API)
 
 The backend for **Team Anvil**, a Federal Document Intelligence Layer: upload a
 government solicitation, pick your corporate role, and get a plain-English,
@@ -30,6 +30,8 @@ api/main.py               app assembly + CORS + retention loop         [week3]
 api/routes/documents.py   scan · upload · get · pdf · delete           [week3]
 core/pii.py               pre-upload PII scan (regex + Luhn)           [week4]
 core/retention.py         3-day hard-delete (boot + hourly + on-access)[week4]
+core/roles.py             5 roles + rule-based obligation→role tagger  [week5]
+api/routes/obligations.py roles · role-filtered register · PATCH       [week5]
 .env.example              copy to .env and set DATABASE_URL
 ```
 
@@ -83,6 +85,23 @@ even if the server was asleep.
 # prove retention works: everything expires immediately
 RETENTION_DAYS=0 uvicorn api.main:app --reload
 ```
+
+## Week 5 — role views
+
+The pivot, in code: **one document, read once — every team gets its answers.**
+`core/roles.py` holds the five roles (`contracts`, `proposal`, `program`,
+`security`, `leadership`), each with the question that team asks. Adding a role
+is one dict entry; nothing else changes.
+
+```bash
+GET /obligations/roles                                  # feeds the role picker
+GET /obligations/document/{id}?role=security&group_by=time
+PATCH /obligations/{id}   # open → in-review → done
+```
+
+The role filter **ranks** rather than hides: your role's obligations sort first,
+but everything stays visible. Transparency beats a false sense of "that's
+everything."
 
 ## Quick start
 

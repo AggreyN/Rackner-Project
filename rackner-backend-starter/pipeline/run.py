@@ -59,6 +59,7 @@ def process_document(session: Session, doc: Document) -> None:
                         obligation_type=raw.get("obligation_type"),
                         trigger_or_deadline=raw.get("trigger_or_deadline"),
                         responsible_party=raw.get("responsible_party"),
+                        roles=raw.get("roles"),
                         category=raw.get("category"),
                         time_bucket=raw.get("time_bucket"),
                         verbatim_quote=quote,

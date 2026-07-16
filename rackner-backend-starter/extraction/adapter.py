@@ -12,11 +12,12 @@ Expected output per obligation (the locked team schema):
       "verbatim_quote": str, "confidence": float
     }
 
-enrich() then derives fields we never ask the LLM for. Role classification is
-added here in Week 5.
+enrich() then derives fields we never ask the LLM for: roles, category and
+time_bucket.
 """
 
 from core.config import ANTHROPIC_API_KEY
+from core.roles import classify_roles
 
 # Category + time-bucket derivation (rule-based, transparent).
 _CATEGORY_BY_TYPE = {
@@ -40,10 +41,12 @@ def _time_bucket(trigger: str | None) -> str:
 
 
 def enrich(raw: dict) -> dict:
-    """Add category / time_bucket to one extracted obligation."""
+    """Add roles / category / time_bucket to one extracted obligation."""
+    text = f"{raw.get('plain_english_text','')} {raw.get('verbatim_quote','')}"
     otype = raw.get("obligation_type", "legal")
     return {
         **raw,
+        "roles": classify_roles(otype, text),
         "category": _CATEGORY_BY_TYPE.get(otype, "legal"),
         "time_bucket": _time_bucket(raw.get("trigger_or_deadline")),
     }

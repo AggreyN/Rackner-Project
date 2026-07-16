@@ -4,7 +4,7 @@ Everything is a module mounted here; removing one router never breaks the
 others. Startup creates tables, purges expired documents, and schedules an
 hourly retention sweep.
 
-Grows each week: the obligations router lands in Week 5, auth in Week 6.
+Grows each week: auth lands in Week 6.
 
 Run it:
     uvicorn api.main:app --reload     # http://localhost:8000/docs
@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import documents
+from api.routes import documents, obligations
 from core.config import ALLOWED_ORIGINS, RETENTION_DAYS
 from core.retention import purge_expired
 from db.database import Base, engine, SessionLocal
@@ -55,6 +55,7 @@ app.add_middleware(
 )
 
 app.include_router(documents.router)
+app.include_router(obligations.router)
 
 
 @app.get("/")
