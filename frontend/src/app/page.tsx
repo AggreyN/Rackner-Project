@@ -1,24 +1,35 @@
 "use client";
 
-// Landing: upload a document, pick your role, enter the workspace.
-// Navy & white, flat surfaces, hairline borders — no gradients anywhere.
+// Landing: upload a document (drop zone or SAM.gov pull), pick your role,
+// enter the workspace. Navy & white, flat surfaces, hairline borders.
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import UploadZone from "@/components/UploadZone";
 import RolePicker from "@/components/RolePicker";
+import SamIntake from "@/components/SamIntake";
+import PiiModal from "@/components/PiiModal";
+import { useDocumentIntake } from "@/hooks/useDocumentIntake";
 import { getRoles } from "@/lib/api";
 import type { RoleInfo } from "@/lib/types";
 
 export default function Home() {
   const router = useRouter();
   const [roles, setRoles] = useState<RoleInfo[]>([]);
+  const [rolesError, setRolesError] = useState(false);
   const [role, setRole] = useState<string | null>(null);
   const [docId, setDocId] = useState<number | null>(null);
+  const intake = useDocumentIntake(setDocId);
 
-  useEffect(() => {
-    getRoles().then(setRoles).catch(() => setRoles([]));
-  }, []);
+  const loadRoles = () => {
+    getRoles()
+      .then((r) => {
+        setRoles(r);
+        setRolesError(false);
+      })
+      .catch(() => setRolesError(true));
+  };
+  useEffect(loadRoles, []);
 
   useEffect(() => {
     if (docId && role) router.push(`/workspace/${docId}?role=${role}`);
@@ -47,12 +58,20 @@ export default function Home() {
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-[#51606f]">
             1 · Upload the document
           </h2>
-          <UploadZone onUploaded={setDocId} />
+          <UploadZone onFile={intake.handleFile} busy={intake.busy} error={intake.error} />
           {docId && (
             <p className="mt-2 text-sm text-[#1e7a46]">
-              Document ready. Now choose your role below.
+              Document received — it&apos;s being read now. Choose your role below to open
+              the workspace.
             </p>
           )}
+        </section>
+
+        <section>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-[#51606f]">
+            …or pull one straight from SAM.gov
+          </h2>
+          <SamIntake onFile={intake.handleFile} disabled={!!intake.busy} />
         </section>
 
         <section>
@@ -60,6 +79,14 @@ export default function Home() {
             2 · Choose your role
           </h2>
           <RolePicker roles={roles} selected={role} onSelect={setRole} />
+          {rolesError && (
+            <p className="mt-2 text-sm text-[#9a6a1e]">
+              Couldn&apos;t load the role list.{" "}
+              <button onClick={loadRoles} className="underline underline-offset-2">
+                Retry
+              </button>
+            </p>
+          )}
           {!docId && role && (
             <p className="mt-2 text-sm text-[#51606f]">
               Role selected — upload a document above to continue.
@@ -72,6 +99,14 @@ export default function Home() {
           permanently deleted after 3 days.
         </footer>
       </div>
+
+      {intake.piiPending && (
+        <PiiModal
+          findings={intake.findings}
+          onConfirm={intake.confirmPii}
+          onCancel={intake.cancelPii}
+        />
+      )}
     </main>
   );
 }
