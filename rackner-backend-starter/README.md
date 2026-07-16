@@ -1,4 +1,4 @@
-# Team Anvil — Backend (Week 7: Citation grounding + OCR)
+# Team Anvil — Backend (Week 8: Integration freeze)
 
 The backend for **Team Anvil**, a Federal Document Intelligence Layer: upload a
 government solicitation, pick your corporate role, and get a plain-English,
@@ -151,6 +151,32 @@ toolchain ingestion still works — scanned pages just come back empty.
 
 ```bash
 pip install pytesseract pdf2image && brew install tesseract poppler
+```
+
+## Week 8 — integration freeze
+
+One command runs the whole backend against every sample PDF — no Postgres
+required (it uses a throwaway SQLite DB and upload dir):
+
+```bash
+python scripts/smoke_test.py                       # all of data/samples/
+python scripts/smoke_test.py path/to/one.pdf       # just one
+```
+
+It asserts what we promise on stage: uploads reach `ready`, clauses and
+obligations land, **every** quote verifies against the source, obligations carry
+citation coordinates, the PII scan stores nothing, and scanned PDFs are reported
+rather than silently empty.
+
+### Repo layout note
+
+The backend lives in **`rackner-backend-starter/`** (not `backend/`). Folder-level
+walkthroughs live next to the code they describe:
+
+```
+ingestion/CODE_WALKTHROUGH.md   extraction/CODE_WALKTHROUGH.md
+db/CODE_WALKTHROUGH.md          pipeline/CODE_WALKTHROUGH.md
+core/CODE_WALKTHROUGH.md        api/CODE_WALKTHROUGH.md
 ```
 
 ## Quick start
