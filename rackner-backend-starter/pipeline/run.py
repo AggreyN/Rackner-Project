@@ -8,7 +8,7 @@ Composes the three owners' modules without modifying any of them:
 Also runs verification: each verbatim_quote is string-matched back to the
 source text; quotes we can't find are stored but flagged verified=False.
 
-The PII scan joins this pipeline in Week 4; bbox persistence in Week 7.
+Bbox persistence joins this pipeline in Week 7.
 """
 
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ingestion.extract_pdf import extract_pages
 from ingestion.segment import segment_pages
 from extraction.adapter import extract_obligations
+from core.pii import scan_text
 from db.models import Document, Clause, Obligation
 
 
@@ -31,6 +32,10 @@ def process_document(session: Session, doc: Document) -> None:
 
         full_text = "\n".join(p.text for p in pages)
         norm_full = _normalize(full_text)
+
+        # Record PII kinds/counts on the document (masked; no raw values stored).
+        findings = scan_text(full_text)
+        doc.pii_findings = {f.kind: f.count for f in findings} or None
 
         for chunk in segment_pages(pages):
             clause = Clause(

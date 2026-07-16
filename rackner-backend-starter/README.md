@@ -1,4 +1,4 @@
-# Team Anvil — Backend (Week 3: Schema + pipeline)
+# Team Anvil — Backend (Week 4: Security features)
 
 The backend for **Team Anvil**, a Federal Document Intelligence Layer: upload a
 government solicitation, pick your corporate role, and get a plain-English,
@@ -26,8 +26,10 @@ ingestion/segment.py      pages → FAR/DFARS clause chunks (page+chars) [week2]
 db/models.py              Document · Clause · Obligation · User        [week3]
 extraction/adapter.py     seam → Kaliza's extractor (mock fallback)    [week3]
 pipeline/run.py           ingest → segment → extract → verify → save   [week3]
-api/main.py               app assembly + CORS                          [week3]
-api/routes/documents.py   upload · get · pdf · delete                  [week3]
+api/main.py               app assembly + CORS + retention loop         [week3]
+api/routes/documents.py   scan · upload · get · pdf · delete           [week3]
+core/pii.py               pre-upload PII scan (regex + Luhn)           [week4]
+core/retention.py         3-day hard-delete (boot + hourly + on-access)[week4]
 .env.example              copy to .env and set DATABASE_URL
 ```
 
@@ -63,6 +65,23 @@ anti-hallucination guarantee — we never silently trust the model.
 
 ```bash
 uvicorn api.main:app --reload      # http://localhost:8000/docs
+```
+
+## Week 4 — security features
+
+**PII pre-upload gate.** `POST /documents/scan` extracts text, runs a regex +
+Luhn scan (SSN, email, phone, card, DOB, passport) and returns masked findings —
+**storing nothing**. The UI shows "sensitive information detected" and the user
+confirms before the real `POST /documents` (which carries `pii_acknowledged`).
+
+**3-day retention.** Every upload is stamped `expires_at = now + RETENTION_DAYS`.
+`purge_expired()` hard-deletes the PDF from disk *and* its rows — on boot, hourly
+in the background, and lazily whenever a document is accessed, so expiry holds
+even if the server was asleep.
+
+```bash
+# prove retention works: everything expires immediately
+RETENTION_DAYS=0 uvicorn api.main:app --reload
 ```
 
 ## Quick start

@@ -3,7 +3,7 @@
 Every module reads from here, so swapping a value (model, upload limit, allowed
 origins) never requires edits elsewhere. Values come from .env first.
 
-This file grows a section per week: retention lands in Week 4, auth in Week 6.
+This file grows a section per week: auth lands in Week 6.
 """
 
 import os
@@ -18,6 +18,10 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://localhost:5432/ra
 # --- Claude / extraction ---
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "claude-sonnet-4-5")
+
+# --- Document retention (security requirement) ---
+# Contracts live in the system for 3 days, then are hard-deleted.
+RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "3"))
 
 # --- File storage ---
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "data/uploads")

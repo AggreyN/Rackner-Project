@@ -1,34 +1,48 @@
 """App assembly.
 
 Everything is a module mounted here; removing one router never breaks the
-others. Startup creates tables (dev convenience — Alembic owns production).
+others. Startup creates tables, purges expired documents, and schedules an
+hourly retention sweep.
 
-Grows each week: the retention sweep lands in Week 4, the obligations router in
-Week 5, auth in Week 6.
+Grows each week: the obligations router lands in Week 5, auth in Week 6.
 
 Run it:
     uvicorn api.main:app --reload     # http://localhost:8000/docs
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import documents
-from core.config import ALLOWED_ORIGINS
-from db.database import Base, engine
+from core.config import ALLOWED_ORIGINS, RETENTION_DAYS
+from core.retention import purge_expired
+from db.database import Base, engine, SessionLocal
+
+
+async def _retention_loop():
+    while True:
+        with SessionLocal() as session:
+            purge_expired(session)
+        await asyncio.sleep(3600)  # hourly
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)      # dev convenience; Alembic owns prod
+    with SessionLocal() as session:
+        purge_expired(session)                 # sweep on boot
+    task = asyncio.create_task(_retention_loop())
     yield
+    task.cancel()
 
 
 app = FastAPI(
     title="Team Anvil — Federal Document Intelligence Layer",
-    description="One document, read once — every team gets its answers.",
+    description=f"One document, read once — every team gets its answers. "
+                f"Documents auto-delete after {RETENTION_DAYS} days.",
     lifespan=lifespan,
 )
 
