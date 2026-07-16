@@ -1,7 +1,7 @@
-# Team Anvil backend — dependencies through Week 3 (Schema + pipeline)
+# Team Anvil backend — dependencies through Week 6 (Hardening)
 # Install with:  pip install -r requirements.txt
 #
-# Each week adds to this file. A checkout of the `week3` tag only needs these.
+# Each week adds to this file. A checkout of the `week6` tag only needs these.
 
 # --- Database (Week 1) ---
 SQLAlchemy>=2.0
@@ -22,3 +22,11 @@ python-multipart>=0.0.9   # FastAPI file uploads
 # Only needed once Kaliza's extraction/extractor.py is present; the adapter
 # falls back to a deterministic mock when it (or ANTHROPIC_API_KEY) is missing.
 anthropic>=0.40
+
+# --- Auth (Week 6 — only active when AUTH_ENABLED=true) ---
+passlib[bcrypt]>=1.7.4    # password hashing
+bcrypt<4.1                # PIN: passlib 1.7.4's backend probe breaks on bcrypt
+                          # 4.1+ ("password cannot be longer than 72 bytes"),
+                          # which makes every hash_password() call raise.
+PyJWT>=2.8                # session tokens
+pydantic[email]>=2.7      # email validation on auth endpoints

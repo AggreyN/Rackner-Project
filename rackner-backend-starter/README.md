@@ -1,4 +1,4 @@
-# Team Anvil — Backend (Week 5: Role views + obligations API)
+# Team Anvil — Backend (Week 6: Hardening)
 
 The backend for **Team Anvil**, a Federal Document Intelligence Layer: upload a
 government solicitation, pick your corporate role, and get a plain-English,
@@ -32,6 +32,8 @@ core/pii.py               pre-upload PII scan (regex + Luhn)           [week4]
 core/retention.py         3-day hard-delete (boot + hourly + on-access)[week4]
 core/roles.py             5 roles + rule-based obligation→role tagger  [week5]
 api/routes/obligations.py roles · role-filtered register · PATCH       [week5]
+core/security.py          bcrypt password hashing + JWT sessions       [week6]
+api/routes/auth.py        register · login (flag: AUTH_ENABLED)        [week6]
 .env.example              copy to .env and set DATABASE_URL
 ```
 
@@ -102,6 +104,27 @@ PATCH /obligations/{id}   # open → in-review → done
 The role filter **ranks** rather than hides: your role's obligations sort first,
 but everything stays visible. Transparency beats a false sense of "that's
 everything."
+
+## Week 6 — hardening
+
+Accounts are **off by default** (`AUTH_ENABLED=false`) so the demo needs no
+login. When enabled, `api/routes/auth.py` mounts `register` / `login`:
+
+- Passwords are never stored — only a salted **bcrypt** hash (`core/security.py`).
+- Sessions are short-lived **JWTs** (12h, HS256); no session table to leak.
+- Login returns the same error whether or not the email exists.
+- Secrets live in `.env` (git-ignored) locally, env vars in AWS.
+
+Also enforced: PDF-only uploads, a `MAX_UPLOAD_MB` cap streamed during write
+(so an oversized file never lands whole on disk), and CORS restricted to
+`ALLOWED_ORIGINS`.
+
+```bash
+AUTH_ENABLED=true uvicorn api.main:app --reload
+```
+
+> Dependency note: `bcrypt` is pinned `<4.1`. passlib 1.7.4's backend probe
+> breaks on bcrypt 4.1+, which makes every password hash raise.
 
 ## Quick start
 

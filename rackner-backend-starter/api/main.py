@@ -4,8 +4,6 @@ Everything is a module mounted here; removing one router never breaks the
 others. Startup creates tables, purges expired documents, and schedules an
 hourly retention sweep.
 
-Grows each week: auth lands in Week 6.
-
 Run it:
     uvicorn api.main:app --reload     # http://localhost:8000/docs
 """
@@ -17,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import documents, obligations
-from core.config import ALLOWED_ORIGINS, RETENTION_DAYS
+from core.config import ALLOWED_ORIGINS, AUTH_ENABLED, RETENTION_DAYS
 from core.retention import purge_expired
 from db.database import Base, engine, SessionLocal
 
@@ -56,6 +54,10 @@ app.add_middleware(
 
 app.include_router(documents.router)
 app.include_router(obligations.router)
+
+if AUTH_ENABLED:                               # feature flag — off for demo
+    from api.routes import auth
+    app.include_router(auth.router)
 
 
 @app.get("/")

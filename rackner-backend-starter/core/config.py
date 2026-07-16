@@ -3,7 +3,6 @@
 Every module reads from here, so swapping a value (model, upload limit, allowed
 origins) never requires edits elsewhere. Values come from .env first.
 
-This file grows a section per week: auth lands in Week 6.
 """
 
 import os
@@ -26,6 +25,11 @@ RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "3"))
 # --- File storage ---
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "data/uploads")
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "50"))
+
+# --- Auth (feature-flagged so the demo works without accounts) ---
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "false").lower() == "true"
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "12"))
 
 # --- CORS: the deployed frontend + local dev ---
 ALLOWED_ORIGINS = [
