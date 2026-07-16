@@ -1,4 +1,4 @@
-# Team Anvil — Backend (Week 6: Hardening)
+# Team Anvil — Backend (Week 7: Citation grounding + OCR)
 
 The backend for **Team Anvil**, a Federal Document Intelligence Layer: upload a
 government solicitation, pick your corporate role, and get a plain-English,
@@ -125,6 +125,33 @@ AUTH_ENABLED=true uvicorn api.main:app --reload
 
 > Dependency note: `bcrypt` is pinned `<4.1`. passlib 1.7.4's backend probe
 > breaks on bcrypt 4.1+, which makes every password hash raise.
+
+## Week 7 — citation grounding + OCR
+
+The coordinate trail that started in Week 2 now reaches the database and the API.
+Each obligation's `verbatim_quote` is **located** on its page (`find_span`,
+tolerant of line-break/whitespace differences), and that span becomes pixel
+rectangles:
+
+```jsonc
+// GET /obligations/document/{id}
+{ "verbatim_quote": "...", "page": 14,
+  "quote_char_start": 986, "quote_char_end": 1104,
+  "quote_boxes": [[161.0, 290.4, 179.0, 302.9], ...] }   // ready to draw
+```
+
+Finding the quote **is** the verification — a quote we can't locate is stored
+`verified=false` rather than silently trusted. (A quote straddling a page break
+still verifies via the whole-document check; it just carries no boxes.)
+
+**OCR fallback (optional).** Scanned, image-only pages have no word layer. If
+`pytesseract` + `tesseract` are installed, those pages are OCR'd into the *same*
+page→char→box coordinate system, and `PageText.ocr` marks them. Without the
+toolchain ingestion still works — scanned pages just come back empty.
+
+```bash
+pip install pytesseract pdf2image && brew install tesseract poppler
+```
 
 ## Quick start
 

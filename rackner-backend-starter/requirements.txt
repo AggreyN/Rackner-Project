@@ -1,4 +1,4 @@
-# Team Anvil backend — dependencies through Week 6 (Hardening)
+# Team Anvil backend — dependencies through Week 7 (Citation grounding + OCR)
 # Install with:  pip install -r requirements.txt
 #
 # Each week adds to this file. A checkout of the `week6` tag only needs these.
@@ -30,3 +30,10 @@ bcrypt<4.1                # PIN: passlib 1.7.4's backend probe breaks on bcrypt
                           # which makes every hash_password() call raise.
 PyJWT>=2.8                # session tokens
 pydantic[email]>=2.7      # email validation on auth endpoints
+
+# --- OCR fallback for scanned pages (Week 7 — optional) ---
+# Ingestion works without these; scanned pages just come back empty. To OCR them:
+#     pip install pytesseract pdf2image
+#     brew install tesseract poppler
+# pytesseract>=0.3.10
+# pdf2image>=1.17

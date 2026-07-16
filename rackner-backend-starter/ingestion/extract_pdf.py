@@ -15,15 +15,25 @@ knows its exact character range inside `PageText.text`, so any character span
 (e.g. a clause's `char_start..char_end` from segment.py) maps straight back to a
 set of pixel boxes via `boxes_for_span`.
 
+Scanned (image-only) pages have no word layer. Week 7 adds an OCR fallback:
+if `pytesseract` + the `tesseract` binary are installed we OCR the page and get
+words *with* boxes, so scanned pages join the same coordinate system. Without
+them the page simply comes back empty — OCR is optional, never required.
+
 Run it:
     python ingestion/extract_pdf.py data/samples/your-file.pdf
 
 Docs: https://pymupdf.readthedocs.io/en/latest/recipes-text.html
 """
 
+import os
+import re
 from dataclasses import dataclass, field
 
 import fitz  # this is PyMuPDF
+
+# Render resolution for OCR. Higher = better accuracy, slower.
+OCR_DPI = int(os.getenv("OCR_DPI", "200"))
 
 
 @dataclass
@@ -52,6 +62,7 @@ class PageText:
     page_number: int                     # 1-based, human-friendly
     text: str
     words: list[Word] = field(default_factory=list)
+    ocr: bool = False                    # True if this page's text came from OCR
 
 
 def _extract_words(page) -> tuple[str, list[Word]]:
@@ -91,21 +102,99 @@ def _extract_words(page) -> tuple[str, list[Word]]:
     return "".join(parts), words
 
 
+def _ocr_words(page) -> tuple[str, list[Word]]:
+    """OCR one page that has no text layer, returning text + boxed words.
+
+    Optional by design: if `pytesseract`/`Pillow` aren't installed, or the
+    `tesseract` binary is missing, we return ("", []) and the caller carries on.
+    A missing OCR toolchain must never break ingestion of normal PDFs.
+
+    Enable with:  pip install pytesseract pdf2image  &&  brew install tesseract
+    """
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        return "", []
+
+    try:
+        pix = page.get_pixmap(dpi=OCR_DPI)
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+    except Exception:
+        # tesseract binary absent, or it failed on this page — degrade quietly.
+        return "", []
+
+    scale = 72.0 / OCR_DPI          # image pixels → PDF points, so OCR boxes
+    parts: list[str] = []           # share one coordinate system with the text layer
+    words: list[Word] = []
+    cursor = 0
+    prev_line: tuple[int, int, int] | None = None
+
+    for i, raw_word in enumerate(data["text"]):
+        w = (raw_word or "").strip()
+        if not w:
+            continue
+        line = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        sep = "" if prev_line is None else ("\n" if line != prev_line else " ")
+        if sep:
+            parts.append(sep)
+            cursor += len(sep)
+
+        start = cursor
+        parts.append(w)
+        cursor += len(w)
+        x, y = data["left"][i], data["top"][i]
+        dx, dy = data["width"][i], data["height"][i]
+        words.append(Word(text=w, char_start=start, char_end=cursor,
+                          x0=x * scale, y0=y * scale,
+                          x1=(x + dx) * scale, y1=(y + dy) * scale))
+        prev_line = line
+
+    return "".join(parts), words
+
+
 def extract_pages(pdf_path: str) -> list[PageText]:
     """Return a list of PageText, one per page of the PDF, with word boxes.
 
-    For a page that has no extractable word layer (e.g. a scanned image), the
-    word list is empty and we fall back to `get_text()` so downstream code still
-    sees whatever text is there. OCR for truly image-only pages is Week 7.
+    A page with no word layer (a scanned image) falls back to OCR when it's
+    available, so scanned pages end up in the same page→char→box coordinate
+    system as everything else. If OCR isn't installed the page comes back empty
+    rather than failing.
     """
     pages: list[PageText] = []
     with fitz.open(pdf_path) as doc:
         for i, page in enumerate(doc):
+            ocr_used = False
             text, words = _extract_words(page)
+            if not words:
+                ocr_text, ocr_w = _ocr_words(page)   # scanned page — try OCR
+                if ocr_w:
+                    text, words, ocr_used = ocr_text, ocr_w, True
             if not text:
-                text = page.get_text()  # scanned page — no words to box
-            pages.append(PageText(page_number=i + 1, text=text, words=words))
+                text = page.get_text()               # last resort
+            pages.append(
+                PageText(page_number=i + 1, text=text, words=words, ocr=ocr_used)
+            )
     return pages
+
+
+def find_span(haystack: str, needle: str) -> tuple[int, int] | None:
+    """Locate `needle` inside `haystack`, tolerating whitespace differences.
+
+    Used to ground a verbatim_quote back to an exact character range on its
+    page (which then becomes pixel boxes). Returns None when the quote genuinely
+    isn't there — that's the anti-hallucination signal.
+    """
+    if not needle or not needle.strip():
+        return None
+    i = haystack.find(needle)                 # fast path: exact match
+    if i != -1:
+        return (i, i + len(needle))
+    # Whitespace between tokens may differ (line breaks, double spaces).
+    pattern = re.compile(r"\s+".join(re.escape(tok) for tok in needle.split()))
+    m = pattern.search(haystack)
+    return (m.start(), m.end()) if m else None
 
 
 def boxes_for_span(page: PageText, char_start: int, char_end: int) -> list[tuple[float, float, float, float]]:

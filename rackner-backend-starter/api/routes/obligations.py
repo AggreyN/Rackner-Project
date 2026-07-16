@@ -45,6 +45,10 @@ def obligations_for_document(
             "time_bucket": o.time_bucket,
             "verbatim_quote": o.verbatim_quote,
             "page": o.page,
+            # Span-highlight payload: where the quote sits on that page.
+            "quote_char_start": o.quote_char_start,
+            "quote_char_end": o.quote_char_end,
+            "quote_boxes": o.quote_boxes or [],
             "confidence": o.confidence,
             "verified": o.verified,
             "status": o.status,

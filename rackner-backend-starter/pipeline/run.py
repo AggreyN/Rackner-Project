@@ -5,15 +5,15 @@ Composes the three owners' modules without modifying any of them:
     Aggrey's  ingestion.segment.segment_pages
     Kaliza's  extractor (via extraction.adapter)
 
-Also runs verification: each verbatim_quote is string-matched back to the
-source text; quotes we can't find are stored but flagged verified=False.
-
-Bbox persistence joins this pipeline in Week 7.
+Also runs verification: each verbatim_quote is located in its source page, which
+both proves the quote is real (anti-hallucination) and yields the exact pixel
+boxes the frontend highlights. Quotes we can't find anywhere are still stored,
+flagged verified=False.
 """
 
 from sqlalchemy.orm import Session
 
-from ingestion.extract_pdf import extract_pages
+from ingestion.extract_pdf import extract_pages, boxes_for_span, find_span
 from ingestion.segment import segment_pages
 from extraction.adapter import extract_obligations
 from core.pii import scan_text
@@ -29,6 +29,7 @@ def process_document(session: Session, doc: Document) -> None:
     try:
         pages = extract_pages(doc.file_path)
         doc.num_pages = len(pages)
+        pages_by_number = {p.page_number: p for p in pages}
 
         full_text = "\n".join(p.text for p in pages)
         norm_full = _normalize(full_text)
@@ -45,12 +46,24 @@ def process_document(session: Session, doc: Document) -> None:
                 page=chunk.page,
                 char_start=chunk.char_start,
                 char_end=chunk.char_end,
+                boxes=[list(b) for b in chunk.boxes] or None,
             )
             session.add(clause)
             session.flush()  # get clause.id
 
+            page = pages_by_number.get(chunk.page)
+
             for raw in extract_obligations(chunk.text):
                 quote = raw.get("verbatim_quote") or ""
+
+                # Ground the quote: find its exact span on the page, then turn
+                # that span into pixel boxes. Finding it *is* the verification.
+                span = find_span(page.text, quote) if (page and quote) else None
+                qboxes = boxes_for_span(page, *span) if (span and page) else []
+                # Fall back to the whole-document check so a quote that straddles
+                # a page break still verifies (it just won't carry boxes).
+                verified = bool(span) or (bool(quote) and _normalize(quote) in norm_full)
+
                 session.add(
                     Obligation(
                         document_id=doc.id,
@@ -64,9 +77,11 @@ def process_document(session: Session, doc: Document) -> None:
                         time_bucket=raw.get("time_bucket"),
                         verbatim_quote=quote,
                         page=chunk.page,
+                        quote_char_start=span[0] if span else None,
+                        quote_char_end=span[1] if span else None,
+                        quote_boxes=[list(b) for b in qboxes] or None,
                         confidence=raw.get("confidence"),
-                        # Anti-hallucination check: quote must exist in source.
-                        verified=bool(quote) and _normalize(quote) in norm_full,
+                        verified=verified,
                     )
                 )
 

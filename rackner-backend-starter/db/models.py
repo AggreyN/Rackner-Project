@@ -7,8 +7,8 @@ Four tables:
     users        only used when AUTH_ENABLED (Week 6)
 
 Citation trail: an obligation points at its source clause, and the clause knows
-its page and character range — so every claim traces back to the document.
-Pixel-level (bbox) spans get stored in Week 7.
+its page, character range, and the pixel boxes of every word in that range — so
+every claim traces back to an exact rectangle on an exact page.
 """
 
 from datetime import datetime, timezone
@@ -57,6 +57,8 @@ class Clause(Base):
     page: Mapped[int | None] = mapped_column(Integer)
     char_start: Mapped[int | None] = mapped_column(Integer)
     char_end: Mapped[int | None] = mapped_column(Integer)
+    # Word boxes covering this clause's span: [[x0,y0,x1,y1], ...] in PDF points.
+    boxes: Mapped[list | None] = mapped_column(JSON)
 
     document: Mapped["Document"] = relationship(back_populates="clauses")
 
@@ -80,6 +82,10 @@ class Obligation(Base):
 
     verbatim_quote: Mapped[str | None] = mapped_column(Text)
     page: Mapped[int | None] = mapped_column(Integer)
+    # Where the quote actually sits on that page — the span-highlight payload.
+    quote_char_start: Mapped[int | None] = mapped_column(Integer)
+    quote_char_end: Mapped[int | None] = mapped_column(Integer)
+    quote_boxes: Mapped[list | None] = mapped_column(JSON)   # [[x0,y0,x1,y1], ...]
     confidence: Mapped[float | None] = mapped_column(Float)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(20), default="open")  # open|in-review|done
