@@ -1,14 +1,24 @@
-# Team Anvil backend — dependencies through Week 2 (Ingestion)
+# Team Anvil backend — dependencies through Week 3 (Schema + pipeline)
 # Install with:  pip install -r requirements.txt
 #
-# Each week adds to this file. A checkout of the `week2` tag only needs these.
+# Each week adds to this file. A checkout of the `week3` tag only needs these.
 
 # --- Database (Week 1) ---
 SQLAlchemy>=2.0
 psycopg[binary]>=3.1      # PostgreSQL driver
-alembic>=1.13             # database migrations (wired up in Week 3)
+alembic>=1.13             # database migrations
 python-dotenv>=1.0        # loads your .env file
 
 # --- PDF parsing & ingestion (Week 2) ---
 PyMuPDF>=1.24             # imported as "fitz" — page text + word bounding boxes
 pdfplumber>=0.11          # tables + character-level coordinates, when needed
+
+# --- API (Week 3) ---
+fastapi>=0.110
+uvicorn[standard]>=0.29   # the server that runs FastAPI
+python-multipart>=0.0.9   # FastAPI file uploads
+
+# --- Extraction (Week 3) ---
+# Only needed once Kaliza's extraction/extractor.py is present; the adapter
+# falls back to a deterministic mock when it (or ANTHROPIC_API_KEY) is missing.
+anthropic>=0.40

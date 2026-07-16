@@ -1,4 +1,4 @@
-# Team Anvil — Backend (Week 2: Ingestion)
+# Team Anvil — Backend (Week 3: Schema + pipeline)
 
 The backend for **Team Anvil**, a Federal Document Intelligence Layer: upload a
 government solicitation, pick your corporate role, and get a plain-English,
@@ -16,13 +16,18 @@ git checkout week3     # Schema + end-to-end pipeline + upload API
 git checkout main      # latest
 ```
 
-## What's here (through Week 2)
+## What's here (through Week 3)
 
 ```
 db/database.py            SQLAlchemy engine + SessionLocal + Base      [week1]
 db/test_connection.py     proves Python can reach your database        [week1]
 ingestion/extract_pdf.py  PDF → pages: text + word bounding boxes      [week2]
 ingestion/segment.py      pages → FAR/DFARS clause chunks (page+chars) [week2]
+db/models.py              Document · Clause · Obligation · User        [week3]
+extraction/adapter.py     seam → Kaliza's extractor (mock fallback)    [week3]
+pipeline/run.py           ingest → segment → extract → verify → save   [week3]
+api/main.py               app assembly + CORS                          [week3]
+api/routes/documents.py   upload · get · pdf · delete                  [week3]
 .env.example              copy to .env and set DATABASE_URL
 ```
 
@@ -41,6 +46,24 @@ python ingestion/extract_pdf.py data/samples/your-file.pdf
 
 Scanned, image-only PDFs have no word layer — they extract empty and are flagged
 for the OCR fallback in Week 7.
+
+## Week 3 — schema + pipeline
+
+The whole chain now runs end to end and lands in the database:
+
+```
+POST /documents  →  extract_pages → segment_pages → extract_obligations
+                 →  verify each verbatim_quote against the source
+                 →  persist Document / Clause / Obligation
+```
+
+Every `verbatim_quote` is string-matched back to the document text; anything we
+can't find is still stored but flagged `verified=False`. That's the
+anti-hallucination guarantee — we never silently trust the model.
+
+```bash
+uvicorn api.main:app --reload      # http://localhost:8000/docs
+```
 
 ## Quick start
 
