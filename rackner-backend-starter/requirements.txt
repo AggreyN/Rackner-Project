@@ -1,20 +1,22 @@
-# Rackner Contract Obligation Extractor — backend dependencies
-# Install with:  pip install -r requirements.txt
+# Rackner FDI — backend dependencies.  Install:  pip install -r requirements.txt
 
-# --- Database (Weeks 4-6) ---
-SQLAlchemy>=2.0
-psycopg[binary]>=3.1      # PostgreSQL driver
-alembic>=1.13             # database migrations
-python-dotenv>=1.0        # loads your .env file
-
-# --- PDF parsing & ingestion (Weeks 2-3, 10) ---
-PyMuPDF>=1.24             # imported as "fitz" — main PDF text extractor
-pdfplumber>=0.11          # tables + character-level coordinates
-
-# --- API (Week 8) ---
+# --- Web framework + server ---
 fastapi>=0.110
-uvicorn[standard]>=0.29   # the server that runs FastAPI
+uvicorn[standard]>=0.29
 
-# --- OCR fallback (Week 10 — uncomment when you get there) ---
-# pytesseract>=0.3.10     # also requires: brew install tesseract
-# pdf2image>=1.17         # also requires: brew install poppler
+# --- Database + migrations ---
+SQLAlchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.1        # PostgreSQL driver (postgresql+psycopg://)
+
+# --- Auth ---
+passlib[bcrypt]>=1.7.4      # local-mode password hashing (bcrypt)
+python-jose[cryptography]>=3.3   # JWT sign/verify (local HS256 + Cognito RS256)
+boto3>=1.34                 # AWS SDK (Cognito / S3, used as features land)
+
+# --- Validation + config ---
+pydantic[email]>=2.7        # EmailStr on auth endpoints
+python-dotenv>=1.0          # load .env in development
+
+# --- HTTP (Cognito JWKS fetch; SAM.gov / USAspending later) ---
+requests>=2.31
