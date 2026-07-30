@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Team Anvil — Federal Document Intelligence",
+  title: "Rackner FDI — Federal Document Intelligence",
   description:
-    "One federal document, read once — every team gets the answers it needs. Upload a contract or solicitation, choose your role, work the cited obligation register.",
+    "Search live SAM.gov opportunities, score fit against your Opportunity Lifecycle plan with cited evidence, follow the money on USAspending, and find the contact.",
 };
 
 export default function RootLayout({
