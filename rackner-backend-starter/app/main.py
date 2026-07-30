@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import config
-from app.routes import auth, health
+from app.routes import analyses, auth, health
 
 app = FastAPI(
     title="Rackner FDI — Backend API",
@@ -33,9 +33,9 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(analyses.router)  # LLM gateway (mock by default; Bedrock via LLM_MODE)
 
-# TODO(week2+): mount domain routers as they land —
+# TODO(week2+): mount remaining domain routers as they land —
 #   - routes/opportunities.py  → SAM.gov search + cache (Opportunity)
-#   - routes/analyses.py        → LLM analysis gateway via Amazon Bedrock (Analysis)
 #   - routes/spend.py           → USAspending.gov lookups (SpendSummary)
 #   - routes/contacts.py        → contact discovery (Contact, human-in-the-loop)

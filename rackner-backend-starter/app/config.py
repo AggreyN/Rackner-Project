@@ -43,3 +43,15 @@ ALLOWED_ORIGINS = [
     for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     if o.strip()
 ]
+
+# --- LLM gateway (Kaliza's extract/analyze) ---
+# "mock"    → deterministic, schema-valid stand-in; no AWS, no cost. DEFAULT.
+# "bedrock" → real Claude on Amazon Bedrock (needs AWS creds + model access).
+LLM_MODE = os.getenv("LLM_MODE", "mock").lower()
+
+# Bedrock model id. Use a US cross-region inference profile so inference stays
+# in US regions (data-residency for federal work). AWS_REGION is set above.
+BEDROCK_MODEL_ID = os.getenv(
+    "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+)
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
