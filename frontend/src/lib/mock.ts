@@ -16,6 +16,7 @@ import type {
   LifecycleProfile,
   OpportunitySummary,
   Profile,
+  SearchFilters,
   SourceDocument,
   SpendSummary,
 } from "./types";
@@ -85,8 +86,25 @@ export async function uploadLifecyclePlan(file: File): Promise<LifecycleProfile>
 
 // ---------- opportunities ----------
 
+/** Months from today until an ISO date. The real backend computes this
+ *  server-side from USAspending's period_of_performance_current_end_date so
+ *  the window filter can run against the whole dataset, not a page of it. */
+function monthsUntil(iso: string): number {
+  const then = new Date(`${iso}T00:00:00`).getTime();
+  const now = Date.now();
+  return Math.round((then - now) / (1000 * 60 * 60 * 24 * 30.44));
+}
+
+/** Solicitations carry no expiry — those three fields are recompete-only. */
+const NO_EXPIRY = {
+  expiry_date: null,
+  months_to_expiry: null,
+  current_award_value: null,
+} as const;
+
 const OPPORTUNITIES: OpportunitySummary[] = [
   {
+    ...NO_EXPIRY,
     id: "disa-soc-0042",
     title: "Managed Cybersecurity & SOC Support Services",
     agency: "Dept. of Defense",
@@ -104,6 +122,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     fit_score: 82,
   },
   {
+    ...NO_EXPIRY,
     id: "af-devsecops-0107",
     title: "Cloud Migration & DevSecOps Engineering",
     agency: "Dept. of the Air Force",
@@ -120,6 +139,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     fit_score: 64,
   },
   {
+    ...NO_EXPIRY,
     id: "darpa-zt-baa-21",
     title: "Zero-Trust Architecture Advisory (BAA)",
     agency: "DARPA",
@@ -136,6 +156,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     fit_score: 75,
   },
   {
+    ...NO_EXPIRY,
     id: "va-helpdesk-2201",
     title: "Enterprise IT Help Desk Consolidation",
     agency: "Dept. of Veterans Affairs",
@@ -152,23 +173,196 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     incumbent: "BigIntegrator Inc.",
     fit_score: 38,
   },
+
+  // --- recompete radar: existing awards from USAspending, not yet solicited ---
+  // These have no solicitation number because no RFP exists yet. That's the
+  // point: catch them 12–18 months out, while the requirement can still be
+  // shaped, instead of reacting to a posting the incumbent already influenced.
+  {
+    id: "army-soc-w15p7t",
+    title: "Army Enterprise SOC Operations (expiring)",
+    agency: "Dept. of the Army",
+    office: "PEO EIS",
+    solicitation_number: null,
+    naics: "541519",
+    set_aside: null,
+    kind: "expiring_award",
+    description:
+      "Current SOC operations award ends in FY27. Direct match to our SOC capability — recompete likely.",
+    close_date: null,
+    days_to_close: null,
+    est_value: "$14M (current award)",
+    incumbent: "Vantage Defense Systems",
+    fit_score: 79,
+    expiry_date: "2027-09-30",
+    months_to_expiry: monthsUntil("2027-09-30"),
+    current_award_value: 14_200_000,
+  },
+  {
+    id: "navy-cloud-n6600",
+    title: "Navy Cloud Hosting & Migration Support (expiring)",
+    agency: "Dept. of the Navy",
+    office: "NAVWAR",
+    solicitation_number: null,
+    naics: "541512",
+    set_aside: "Small Business",
+    kind: "expiring_award",
+    description:
+      "GovCloud hosting and migration support ending FY27. Small-business set-aside on the current award.",
+    close_date: null,
+    days_to_close: null,
+    est_value: "$9M (current award)",
+    incumbent: "Tidewater Cloud Partners",
+    fit_score: 71,
+    expiry_date: "2027-11-30",
+    months_to_expiry: monthsUntil("2027-11-30"),
+    current_award_value: 8_900_000,
+  },
+  {
+    id: "disa-netops-hc1084",
+    title: "DISA Network Operations Support (expiring)",
+    agency: "Dept. of Defense",
+    office: "DISA",
+    solicitation_number: null,
+    naics: "541519",
+    set_aside: null,
+    kind: "expiring_award",
+    description:
+      "Network operations and monitoring award ending FY27. Same customer as our SOC pursuit — warm relationship.",
+    close_date: null,
+    days_to_close: null,
+    est_value: "$6M (current award)",
+    incumbent: "Northgate Technical",
+    fit_score: 68,
+    expiry_date: "2027-08-31",
+    months_to_expiry: monthsUntil("2027-08-31"),
+    current_award_value: 6_400_000,
+  },
+  {
+    id: "gsa-helpdesk-47qtca",
+    title: "GSA Enterprise Service Desk (expiring)",
+    agency: "General Services Administration",
+    office: "FAS",
+    solicitation_number: null,
+    naics: "541513",
+    set_aside: null,
+    kind: "expiring_award",
+    description:
+      "Service desk award ending FY27. Large-business scope, low capability overlap — tracked, not targeted.",
+    close_date: null,
+    days_to_close: null,
+    est_value: "$22M (current award)",
+    incumbent: "BigIntegrator Inc.",
+    fit_score: 34,
+    expiry_date: "2027-10-31",
+    months_to_expiry: monthsUntil("2027-10-31"),
+    current_award_value: 21_800_000,
+  },
+  {
+    id: "dhs-zerotrust-70rsat",
+    title: "DHS Zero-Trust Implementation (expiring)",
+    agency: "Dept. of Homeland Security",
+    office: "CISA",
+    solicitation_number: null,
+    naics: "541512",
+    set_aside: null,
+    kind: "expiring_award",
+    description:
+      "Zero-trust rollout ending FY28. Strong capability match but still too early to shape.",
+    close_date: null,
+    days_to_close: null,
+    est_value: "$11M (current award)",
+    incumbent: "Beacon Federal",
+    fit_score: 77,
+    expiry_date: "2028-05-31",
+    months_to_expiry: monthsUntil("2028-05-31"),
+    current_award_value: 11_300_000,
+  },
+  {
+    id: "af-cyberrange-fa8773",
+    title: "Air Force Cyber Range Sustainment (expiring)",
+    agency: "Dept. of the Air Force",
+    office: "AFLCMC",
+    solicitation_number: null,
+    naics: "541519",
+    set_aside: null,
+    kind: "expiring_award",
+    description:
+      "Cyber range sustainment ending FY27. Good fit, but the shaping window has effectively closed.",
+    close_date: null,
+    days_to_close: null,
+    est_value: "$5M (current award)",
+    incumbent: "Redhorse Cyber",
+    fit_score: 72,
+    expiry_date: "2027-03-31",
+    months_to_expiry: monthsUntil("2027-03-31"),
+    current_award_value: 4_700_000,
+  },
 ];
 
-export async function searchOpportunities(query: string): Promise<OpportunitySummary[]> {
-  const q = query.trim().toLowerCase();
-  if (!q) return delay(OPPORTUNITIES);
-  const terms = q.split(/\s+/).filter((t) => t.length > 2);
-  const hits = OPPORTUNITIES.filter((o) => {
-    const hay =
-      `${o.title} ${o.agency} ${o.office ?? ""} ${o.naics ?? ""} ${o.set_aside ?? ""} ${o.description}`.toLowerCase();
-    return terms.length === 0 || terms.some((t) => hay.includes(t));
-  });
-  return delay(hits.length ? hits : OPPORTUNITIES, 600);
+/** Mirrors what the backend does in SQL. Kept in one place so the mock and
+ *  the real API can't drift on filter semantics. */
+function applyFilters(
+  list: OpportunitySummary[],
+  filters: SearchFilters = {}
+): OpportunitySummary[] {
+  let out = list;
+
+  if (filters.kinds?.length) {
+    out = out.filter((o) => filters.kinds!.includes(o.kind));
+  }
+
+  if (filters.expiring_from !== undefined || filters.expiring_to !== undefined) {
+    const lo = filters.expiring_from ?? Number.NEGATIVE_INFINITY;
+    const hi = filters.expiring_to ?? Number.POSITIVE_INFINITY;
+    // Anything without an expiry date is not a recompete — exclude it rather
+    // than silently treating a missing date as "in range".
+    out = out.filter(
+      (o) => o.months_to_expiry !== null && o.months_to_expiry >= lo && o.months_to_expiry <= hi
+    );
+  }
+
+  return out;
 }
 
-export async function getSuggested(): Promise<OpportunitySummary[]> {
-  // Ranked against the lifecycle plan; no plan on file → no scores.
-  const ranked = [...OPPORTUNITIES].sort((a, b) => (b.fit_score ?? 0) - (a.fit_score ?? 0));
+function matchesQuery(o: OpportunitySummary, terms: string[]): boolean {
+  if (terms.length === 0) return true;
+  const hay =
+    `${o.title} ${o.agency} ${o.office ?? ""} ${o.naics ?? ""} ${o.set_aside ?? ""} ${o.incumbent ?? ""} ${o.description}`.toLowerCase();
+  return terms.some((t) => hay.includes(t));
+}
+
+/** Expiring awards sort by soonest-expiring; everything else by fit. */
+function sortForDisplay(list: OpportunitySummary[]): OpportunitySummary[] {
+  return [...list].sort((a, b) => {
+    if (a.months_to_expiry !== null && b.months_to_expiry !== null) {
+      return a.months_to_expiry - b.months_to_expiry;
+    }
+    return (b.fit_score ?? 0) - (a.fit_score ?? 0);
+  });
+}
+
+export async function searchOpportunities(
+  query: string,
+  filters: SearchFilters = {}
+): Promise<OpportunitySummary[]> {
+  const terms = query
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 2);
+
+  const scoped = applyFilters(OPPORTUNITIES, filters);
+  const hits = scoped.filter((o) => matchesQuery(o, terms));
+
+  // A filter that legitimately matches nothing must return nothing — falling
+  // back to "everything" here would quietly lie about the window.
+  return delay(sortForDisplay(terms.length === 0 ? scoped : hits), 600);
+}
+
+export async function getSuggested(filters: SearchFilters = {}): Promise<OpportunitySummary[]> {
+  const ranked = sortForDisplay(applyFilters(OPPORTUNITIES, filters));
+  // No plan on file → nothing to score against.
   return delay(lifecycle ? ranked : ranked.map((o) => ({ ...o, fit_score: null })));
 }
 
@@ -598,10 +792,67 @@ const ANALYSES: Record<string, Analysis> = {
   },
 };
 
+/** An expiring award has no RFP yet, so there is nothing to cite and no
+ *  obligations to extract. Fit is still scorable from the award's scope and
+ *  the USAspending record — that's the whole point of looking this early.
+ *  Factors carry null citations, which the UI renders without a link. */
+function recompeteAnalysis(opp: OpportunitySummary): Analysis {
+  const band = opp.fit_score! >= 70 ? "pursue" : opp.fit_score! >= 50 ? "conditional" : "no_bid";
+  const months = opp.months_to_expiry ?? 0;
+  const inWindow = months >= 12 && months <= 18;
+
+  const f = (key: string, label: string, weight: number, score: number, rationale: string) => ({
+    key,
+    label,
+    weight,
+    score,
+    rationale,
+    citation: null,
+  });
+
+  return {
+    opportunity_id: opp.id,
+    score: opp.fit_score!,
+    band,
+    verdict: inWindow
+      ? `In the capture window — ${months} months to expiry`
+      : months < 12
+        ? `Expires in ${months} months — likely too late to shape`
+        : `Expires in ${months} months — track, revisit at 18 months`,
+    factors: [
+      f("mission", "Strategic / mission alignment", 0.15, opp.fit_score! >= 70 ? 4.3 : 2.4,
+        `${opp.agency} is ${opp.fit_score! >= 70 ? "a named target market" : "outside the plan's target markets"}.`),
+      f("technical", "Technical & domain capability", 0.2, opp.fit_score! >= 70 ? 4.5 : 2.6,
+        "Scored from the current award's scope description on USAspending."),
+      f("past_perf", "Past-performance relevance", 0.15, 3.6,
+        "Comparable work in the lifecycle plan's past-performance section."),
+      f("vehicle", "Contract-vehicle access", 0.1, 3.5,
+        "Vehicle for the recompete is not yet announced."),
+      f("set_aside", "Set-aside eligibility", 0.1, opp.set_aside ? 4.5 : 3.0,
+        opp.set_aside
+          ? `Current award is a ${opp.set_aside} set-aside — likely to carry forward.`
+          : "Current award is unrestricted; set-aside status may change at recompete."),
+      f("incumbent", "Incumbent advantage (inverse)", 0.1, 2.5,
+        `${opp.incumbent ?? "The incumbent"} holds the expiring award — expect them to defend it.`),
+      f("pricing", "Pricing / size fit", 0.1, 3.8,
+        `Current award value ${opp.est_value ?? "unknown"} against the plan's target band.`),
+      f("time", "Time to shape", 0.1, inWindow ? 4.6 : months < 12 ? 1.8 : 3.2,
+        inWindow
+          ? "Inside the 12–18 month window — time to meet the CO and shape requirements."
+          : months < 12
+            ? "Under 12 months; the requirement is probably already shaped."
+            : "Over 18 months out; revisit once it enters the window."),
+    ],
+    obligations: [], // no solicitation posted yet — nothing to extract or cite
+  };
+}
+
 export async function getAnalysis(id: string): Promise<Analysis> {
   const a = ANALYSES[id];
-  if (!a) throw new Error(`404: no analysis for ${id}`);
-  return delay(a, 1100); // the LLM "reads" the document
+  if (a) return delay(a, 1100); // the LLM "reads" the document
+  const opp = OPPORTUNITIES.find((o) => o.id === id);
+  if (opp?.kind === "expiring_award") return delay(recompeteAnalysis(opp), 900);
+  throw new Error(`404: no analysis for ${id}`);
 }
 
 // ---------- source documents ----------
@@ -763,10 +1014,31 @@ const SPEND: Record<string, SpendSummary> = {
   },
 };
 
+/** For an expiring award the USAspending record IS the primary evidence —
+ *  it's a real contract with real obligations to date. Derived from the
+ *  current award value so the mock stays internally consistent. */
+function recompeteSpend(opp: OpportunitySummary): SpendSummary {
+  const total = opp.current_award_value ?? 0;
+  const shares = [0.19, 0.23, 0.28, 0.3]; // ramping profile
+  const years = ["FY22", "FY23", "FY24", "FY25"].map((fy, i) => ({
+    fiscal_year: fy,
+    amount: Math.round(total * shares[i]),
+  }));
+  return {
+    opportunity_id: opp.id,
+    years,
+    total_obligated: total,
+    incumbent: opp.incumbent ? { name: opp.incumbent, uei: "UEI on file" } : null,
+    trend_pct: 16,
+  };
+}
+
 export async function getSpend(id: string): Promise<SpendSummary> {
   const s = SPEND[id];
-  if (!s) throw new Error(`404: no spend data for ${id}`);
-  return delay(s, 500);
+  if (s) return delay(s, 500);
+  const opp = OPPORTUNITIES.find((o) => o.id === id);
+  if (opp?.kind === "expiring_award") return delay(recompeteSpend(opp), 500);
+  throw new Error(`404: no spend data for ${id}`);
 }
 
 // ---------- contact discovery ----------
@@ -812,8 +1084,25 @@ const CONTACTS: Record<string, ContactResult> = {
 
 export async function getContact(id: string): Promise<ContactResult> {
   const c = CONTACTS[id];
-  if (!c) throw new Error(`404: no contact for ${id}`);
-  return delay(c, 700);
+  if (c) return delay(c, 700);
+  const opp = OPPORTUNITIES.find((o) => o.id === id);
+  if (opp?.kind === "expiring_award") {
+    // No active solicitation → outreach IS appropriate here. This is exactly
+    // the window the Procurement Integrity flag is telling you to use.
+    return delay(
+      {
+        opportunity_id: opp.id,
+        name: "Contracting officer on the current award",
+        title: "Contracting Officer",
+        office: `${opp.agency}${opp.office ? ` · ${opp.office}` : ""}`,
+        email: "resolved from the award record on request",
+        confidence: 0.6,
+        active_solicitation: false,
+      },
+      700
+    );
+  }
+  throw new Error(`404: no contact for ${id}`);
 }
 
 // ---------- chatbot ----------

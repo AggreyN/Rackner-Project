@@ -7,8 +7,14 @@
 //   POST /auth/login                          {email, password} → {access_token}
 //   GET  /profile                             → Profile (user + lifecycle plan)
 //   POST /profile/lifecycle   (multipart PDF) → LifecycleProfile
-//   GET  /opportunities/search?q=             → OpportunitySummary[]   (SAM.gov, server-side key)
-//   GET  /opportunities/suggested             → OpportunitySummary[]   (ranked vs lifecycle plan)
+//   GET  /opportunities/search?q=&kinds=&expiring_from=&expiring_to=
+//                                             → OpportunitySummary[]   (SAM.gov, server-side key)
+//   GET  /opportunities/suggested?kinds=&expiring_from=&expiring_to=
+//                                             → OpportunitySummary[]   (ranked vs lifecycle plan)
+//
+//   Recompete radar: `kinds=expiring_award` + expiring_from/to (months) returns
+//   EXISTING awards from USAspending whose period of performance ends inside
+//   that window — not SAM.gov notices. 12–18 months is the capture sweet spot.
 //   GET  /opportunities/{id}                  → OpportunitySummary
 //   GET  /opportunities/{id}/analysis         → Analysis               (gov-safe LLM, cited)
 //   GET  /opportunities/{id}/document         → SourceDocument         (parsed text w/ sections)
@@ -28,6 +34,7 @@ import type {
   LifecycleProfile,
   OpportunitySummary,
   Profile,
+  SearchFilters,
   SourceDocument,
   SpendSummary,
 } from "./types";
@@ -77,15 +84,38 @@ export async function uploadLifecyclePlan(file: File): Promise<LifecycleProfile>
 
 // ---------- opportunities ----------
 
-export async function searchOpportunities(query: string): Promise<OpportunitySummary[]> {
-  if (USE_MOCK) return mock.searchOpportunities(query);
-  const params = new URLSearchParams({ q: query });
+/** Serializes SearchFilters into the query params the backend expects.
+ *  Filtering MUST happen server-side — the recompete radar queries the whole
+ *  USAspending award set, which can't be paged into the browser. */
+function filterParams(filters: SearchFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters.expiring_from !== undefined) {
+    params.set("expiring_from", String(filters.expiring_from));
+  }
+  if (filters.expiring_to !== undefined) {
+    params.set("expiring_to", String(filters.expiring_to));
+  }
+  if (filters.kinds?.length) params.set("kinds", filters.kinds.join(","));
+  return params;
+}
+
+export async function searchOpportunities(
+  query: string,
+  filters: SearchFilters = {}
+): Promise<OpportunitySummary[]> {
+  if (USE_MOCK) return mock.searchOpportunities(query, filters);
+  const params = filterParams(filters);
+  params.set("q", query);
   return json(await fetch(`${BASE}/opportunities/search?${params}`, { headers: headers() }));
 }
 
-export async function getSuggested(): Promise<OpportunitySummary[]> {
-  if (USE_MOCK) return mock.getSuggested();
-  return json(await fetch(`${BASE}/opportunities/suggested`, { headers: headers() }));
+export async function getSuggested(filters: SearchFilters = {}): Promise<OpportunitySummary[]> {
+  if (USE_MOCK) return mock.getSuggested(filters);
+  const params = filterParams(filters);
+  const qs = params.toString();
+  return json(
+    await fetch(`${BASE}/opportunities/suggested${qs ? `?${qs}` : ""}`, { headers: headers() })
+  );
 }
 
 export async function getOpportunity(id: string): Promise<OpportunitySummary> {

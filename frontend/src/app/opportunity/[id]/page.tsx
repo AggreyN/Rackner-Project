@@ -40,6 +40,7 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
   const [opp, setOpp] = useState<OpportunitySummary | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [doc, setDoc] = useState<SourceDocument | null>(null);
+  const [docMissing, setDocMissing] = useState(false); // no RFP posted yet
   const [spend, setSpend] = useState<SpendSummary | null>(null);
   const [contact, setContact] = useState<ContactResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +54,9 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
     if (email) getProfile(email).then(setProfile).catch(() => {});
     getOpportunity(id).then(setOpp).catch((e) => setError(String(e)));
     getAnalysis(id).then(setAnalysis).catch((e) => setError(String(e)));
-    getSourceDocument(id).then(setDoc).catch(() => {});
+    getSourceDocument(id)
+      .then(setDoc)
+      .catch(() => setDocMissing(true));
     getSpend(id).then(setSpend).catch(() => {});
     getContact(id).then(setContact).catch(() => {});
   }, [ready, email, id]);
@@ -139,7 +142,32 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
             {analysis ? (
               <>
                 <CompatibilityPanel analysis={analysis} onCite={handleCite} />
-                <ObligationsPanel obligations={analysis.obligations} onCite={handleCite} />
+                {analysis.obligations.length > 0 ? (
+                  <ObligationsPanel obligations={analysis.obligations} onCite={handleCite} />
+                ) : (
+                  <div
+                    className="border border-[#d7dee6] bg-white p-4 sm:p-5"
+                    data-testid="no-solicitation"
+                  >
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#51606f]">
+                      Obligations
+                    </h3>
+                    <p className="text-sm leading-relaxed text-[#51606f]">
+                      No solicitation has been posted for this recompete yet, so there is nothing
+                      to extract or cite. Fit above is scored from the current award&apos;s scope
+                      and its USAspending record.{" "}
+                      {opp?.months_to_expiry !== null && opp?.months_to_expiry !== undefined && (
+                        <>
+                          Expect an RFP roughly{" "}
+                          <b className="text-[#16324f]">
+                            {Math.max(opp.months_to_expiry - 6, 0)}–{opp.months_to_expiry} months
+                          </b>{" "}
+                          from now — shape it before then.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                )}
               </>
             ) : (
               !error && (
@@ -174,6 +202,7 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
         >
           <SourcePane
             doc={doc}
+            unavailable={docMissing}
             cite={cite}
             collapsed={collapsed}
             onToggle={() => setCollapsed(!collapsed)}

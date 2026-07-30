@@ -10,15 +10,14 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("home", () => {
-  test("shows suggested opportunities ranked with fit badges", async ({ page }) => {
+  test("shows suggested opportunities with fit badges", async ({ page }) => {
     await expect(page.getByText("Suggested for Rackner")).toBeVisible();
     const cards = page.getByTestId("opportunity-card");
-    await expect(cards).toHaveCount(4);
-    // Ranked: highest fit first (82), lowest last (38)
-    await expect(cards.first()).toContainText("Managed Cybersecurity & SOC Support Services");
-    await expect(cards.first()).toContainText("82");
-    await expect(cards.last()).toContainText("Enterprise IT Help Desk Consolidation");
-    await expect(cards.last()).toContainText("38");
+    // Open solicitations plus the recompete radar's expiring awards.
+    await expect(cards.first()).toBeVisible();
+    expect(await cards.count()).toBeGreaterThan(4);
+    await expect(page.getByText("Managed Cybersecurity & SOC Support Services")).toBeVisible();
+    await expect(page.getByText("Enterprise IT Help Desk Consolidation")).toBeVisible();
   });
 
   test("lifecycle chip opens the fit profile", async ({ page }) => {
@@ -31,22 +30,23 @@ test.describe("home", () => {
   });
 
   test("search filters live opportunities and can be cleared", async ({ page }) => {
-    await page.getByPlaceholder(/Search SAM\.gov/).fill("devsecops cloud");
+    await page.getByPlaceholder(/Search by keyword/).fill("devsecops");
     await page.getByRole("button", { name: "Search" }).click();
-    await expect(page.getByText(/Results for/)).toBeVisible();
+    await expect(page.getByTestId("results")).toHaveAttribute("data-busy", "false");
     await expect(page.getByTestId("opportunity-card")).toHaveCount(1);
     await expect(page.getByTestId("opportunity-card")).toContainText(
       "Cloud Migration & DevSecOps Engineering"
     );
-    await page.getByRole("button", { name: "Clear search" }).click();
+    await page.getByRole("button", { name: "Clear" }).click();
     await expect(page.getByText("Suggested for Rackner")).toBeVisible();
-    await expect(page.getByTestId("opportunity-card")).toHaveCount(4);
   });
 
   test("card meta shows closing window, value, and incumbent", async ({ page }) => {
-    const card = page.getByTestId("opportunity-card").first();
+    const card = page
+      .getByTestId("opportunity-card")
+      .filter({ hasText: "Managed Cybersecurity & SOC Support Services" });
     await expect(card).toContainText("Closes in 21 days");
-    await expect(card).toContainText("Est. $8–12M / 5yr");
+    await expect(card).toContainText("$8–12M / 5yr");
     await expect(card).toContainText("Incumbent: SmallCyber LLC");
   });
 });

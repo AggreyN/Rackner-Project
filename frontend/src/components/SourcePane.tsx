@@ -12,6 +12,8 @@ import type { CiteTarget } from "./ObligationsPanel";
 
 interface Props {
   doc: SourceDocument | null;
+  /** True when no solicitation exists yet (expiring award / recompete). */
+  unavailable?: boolean;
   cite: CiteTarget | null;
   collapsed: boolean;
   onToggle: () => void;
@@ -22,7 +24,7 @@ function normalizeRef(section: string): string {
   return section.replace(/^§/, "").trim();
 }
 
-export default function SourcePane({ doc, cite, collapsed, onToggle }: Props) {
+export default function SourcePane({ doc, unavailable, cite, collapsed, onToggle }: Props) {
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
@@ -62,7 +64,19 @@ export default function SourcePane({ doc, cite, collapsed, onToggle }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 text-[12.5px] leading-relaxed text-[#333]">
-        {!doc ? (
+        {unavailable ? (
+          <div data-testid="source-unavailable" className="text-[#51606f]">
+            <p className="font-semibold text-[#16324f]">No solicitation posted yet</p>
+            <p className="mt-1.5 leading-relaxed">
+              This is an existing award nearing the end of its period of performance, tracked from
+              USAspending.gov. There is no RFP to read or cite until the recompete is solicited.
+            </p>
+            <p className="mt-3 leading-relaxed">
+              That is the advantage: the requirement can still be shaped. Use the spend history and
+              contact on the left to start capture now.
+            </p>
+          </div>
+        ) : !doc ? (
           <p className="text-[#51606f]">Loading the source document…</p>
         ) : (
           doc.sections.map((s) => {

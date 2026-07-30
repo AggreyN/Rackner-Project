@@ -33,10 +33,19 @@ export interface Profile {
 
 // ---------- opportunities (SAM.gov) ----------
 
-export type OpportunityKind = "solicitation" | "baa" | "sources_sought" | "presolicitation";
+/** `expiring_award` is NOT a SAM.gov notice — it's an existing award from
+ *  USAspending.gov whose period of performance is ending, i.e. a recompete
+ *  that hasn't been solicited yet. That's the capture window; by the time a
+ *  solicitation posts, the incumbent has usually already shaped it. */
+export type OpportunityKind =
+  | "solicitation"
+  | "baa"
+  | "sources_sought"
+  | "presolicitation"
+  | "expiring_award";
 
 export interface OpportunitySummary {
-  id: string; // SAM.gov notice id
+  id: string; // SAM.gov notice id, or USAspending award id for expiring_award
   title: string;
   agency: string;
   office: string | null;
@@ -45,13 +54,72 @@ export interface OpportunitySummary {
   set_aside: string | null;
   kind: OpportunityKind;
   description: string; // mini description for cards
-  close_date: string | null; // ISO date
+  close_date: string | null; // ISO date — solicitation response deadline
   days_to_close: number | null;
   est_value: string | null; // e.g. "$8–12M / 5yr" (display string from backend)
   incumbent: string | null;
   /** 0–100 compatibility vs. the lifecycle plan; null until a plan is on file. */
   fit_score: number | null;
+
+  // --- recompete radar (expiring_award only; null on live solicitations) ---
+  /** Period-of-performance end date of the CURRENT award (ISO date).
+   *  Backend maps this from USAspending's
+   *  `period_of_performance_current_end_date`. */
+  expiry_date: string | null;
+  /** Months from today until `expiry_date`. Backend computes it so the
+   *  window filter is evaluated server-side against the full dataset. */
+  months_to_expiry: number | null;
+  /** Total obligated on the expiring award — the size signal for a recompete. */
+  current_award_value: number | null;
 }
+
+// ---------- search filters ----------
+
+/** The capture sweet spot. Early enough to shape the requirement, meet the
+ *  CO during sources-sought, and build a team before the RFP drops. */
+export const RECOMPETE_WINDOW = { from: 12, to: 18 } as const;
+
+export interface SearchFilters {
+  /** Only return expiring awards whose `months_to_expiry` falls in
+   *  [expiring_from, expiring_to]. Omit both for no expiry filtering. */
+  expiring_from?: number;
+  expiring_to?: number;
+  /** Restrict to these kinds. Omit for all. */
+  kinds?: OpportunityKind[];
+}
+
+export type TimingPreset = "all" | "recompete" | "expiring_soon" | "open";
+
+export const TIMING_PRESETS: Array<{
+  key: TimingPreset;
+  label: string;
+  hint: string;
+  filters: SearchFilters;
+}> = [
+  { key: "all", label: "All", hint: "Everything we track.", filters: {} },
+  {
+    key: "recompete",
+    label: "Recompete window · 12–18 mo",
+    hint: "Contracts expiring in 12–18 months — early enough to shape the requirement and meet the CO before the RFP drops.",
+    filters: {
+      kinds: ["expiring_award"],
+      expiring_from: RECOMPETE_WINDOW.from,
+      expiring_to: RECOMPETE_WINDOW.to,
+    },
+  },
+  {
+    key: "expiring_soon",
+    label: "Expiring ≤ 24 mo",
+    hint: "Every tracked award ending within two years — includes the ones that are already too late to shape.",
+    filters: { kinds: ["expiring_award"], expiring_from: 0, expiring_to: 24 },
+  },
+  {
+    key: "open",
+    label: "Open solicitations",
+    hint: "Posted on SAM.gov and accepting responses now.",
+    filters: { kinds: ["solicitation", "baa", "sources_sought", "presolicitation"] },
+  },
+];
 
 // ---------- analysis (the demo's heart) ----------
 
