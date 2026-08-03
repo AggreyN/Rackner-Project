@@ -20,6 +20,9 @@ from app.schemas import FACTOR_LABELS, FACTOR_WEIGHTS
 # the ORIGINAL string (no normalization) keeps every span index meaningful.
 _SENTENCE_RE = re.compile(r"[^.\n]+")
 
+# Word splitter for the chat keyword fallback.
+_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
+
 _MAX_QUOTE = 300
 
 
@@ -139,3 +142,45 @@ def analyze_factors(opportunity: dict, lifecycle_profile: dict) -> dict:
         "credentials + Claude Sonnet 4.5 model access) for real scoring."
     )
     return {"verdict_note": note, "factors": factors}
+
+
+def answer_question(question: str, sections: list) -> dict:
+    """Deterministic grounded answer for LLM_MODE=mock.
+
+    Scores each section by how many question words it contains and quotes the
+    best match. Cites only sections it actually used, and returns no citations
+    when nothing matches — the same "say so plainly" behaviour the real prompt
+    demands, so the ungrounded path is exercised in demos too.
+    """
+    words = {w for w in _NORMALIZE_RE.split((question or "").lower()) if len(w) > 3}
+    scored = []
+    for section in sections or []:
+        if isinstance(section, dict):
+            ref, page, text = section.get("ref"), section.get("page"), section.get("text", "")
+        else:
+            ref, page, text = (
+                getattr(section, "ref", ""),
+                getattr(section, "page", None),
+                getattr(section, "text", ""),
+            )
+        low = (text or "").lower()
+        hits = sum(1 for w in words if w in low)
+        if hits:
+            scored.append((hits, ref, page, text))
+
+    if not scored:
+        return {
+            "answer": (
+                "[MOCK] The provided sections do not answer that question. "
+                "Set LLM_MODE=bedrock for a real answer."
+            ),
+            "citations": [],
+        }
+
+    scored.sort(key=lambda s: s[0], reverse=True)
+    top = scored[:3]
+    excerpt = " ".join((top[0][3] or "").split())[:240]
+    return {
+        "answer": f"[MOCK] Based on section {top[0][1]}: {excerpt}",
+        "citations": [{"section": ref, "page": page} for _, ref, page, _ in top],
+    }

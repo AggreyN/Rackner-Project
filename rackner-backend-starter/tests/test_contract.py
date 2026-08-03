@@ -173,8 +173,12 @@ def test_routes_match_the_contract(client):
 
     called = set()
     for raw in re.findall(r"\$\{BASE\}([^`\"']*)", api_ts.read_text(encoding="utf-8")):
-        path = raw.split("?")[0]
-        path = re.sub(r"\$\{[^}]*\}", "{id}", path).rstrip("/")
+        # Substitute complete ${...} interpolations, then cut at any leftover
+        # "$" — api.ts builds one URL with a nested template
+        # (`/opportunities/suggested${qs ? `?${qs}` : ""}`) whose inner backtick
+        # truncates the capture mid-expression.
+        path = re.sub(r"\$\{[^}]*\}", "{id}", raw)
+        path = path.split("$")[0].split("?")[0].rstrip("/")
         if path.startswith("/"):
             called.add(path)
 
@@ -183,8 +187,8 @@ def test_routes_match_the_contract(client):
         for p in client.get("/openapi.json").json()["paths"]
     }
 
-    # Week 3 routes are not built yet; assert only on what this week shipped.
-    week2 = {"/auth/login", "/profile", "/profile/lifecycle",
-             "/opportunities/{id}/analysis", "/opportunities/{id}/document"}
-    missing = (called & week2) - served
+    # All 11 contract routes now exist, so assert on the full set: every path
+    # api.ts calls must be served, spelled identically.
+    missing = called - served
     assert not missing, f"frontend calls these but the backend doesn't serve them: {sorted(missing)}"
+    assert len(called) >= 11, f"expected the 11 contract routes, found {len(called)}: {sorted(called)}"

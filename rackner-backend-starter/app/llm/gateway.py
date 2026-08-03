@@ -186,3 +186,53 @@ def analyze(opportunity: dict, lifecycle_profile: dict, sections: list) -> dict:
         "factors": factors,
         "obligations": obligations,
     }
+
+
+def answer_question(question: str, sections: list) -> dict:
+    """Answer a question grounded in the solicitation's own sections.
+
+    Returns SCHEMA_v2's ChatAnswer shape: {answer, citations[{section, page}]}.
+
+    Citations are validated against the sections we actually passed in — a model
+    that cites a section that doesn't exist has its citation dropped rather than
+    returned. The answer text is kept either way, because "I couldn't find that"
+    is a useful answer; a citation pointing at a nonexistent clause is not.
+    """
+    by_ref: dict[str, object] = {}
+    for section in sections or []:
+        ref = str(_section_field(section, "ref", "") or "").lstrip("§").strip()
+        if ref:
+            by_ref[ref] = section
+
+    if config.LLM_MODE == "bedrock":
+        from app.llm import bedrock_client
+
+        parsed = _parse_json(
+            bedrock_client.invoke(
+                prompts.CHAT_SYSTEM, prompts.chat_user_prompt(question, sections)
+            )
+        )
+        parsed = parsed if isinstance(parsed, dict) else {}
+        answer = str(parsed.get("answer", "") or "")
+        raw_citations = parsed.get("citations") or []
+    else:
+        result = mock.answer_question(question, sections)
+        answer, raw_citations = result["answer"], result["citations"]
+
+    citations = []
+    for citation in raw_citations:
+        if not isinstance(citation, dict):
+            continue
+        ref = str(citation.get("section", "") or "").lstrip("§").strip()
+        if ref not in by_ref:
+            continue  # invented section ref — drop it
+        page = citation.get("page")
+        if page is None:
+            page = _section_field(by_ref[ref], "page", None)
+        try:
+            page = int(page) if page is not None else None
+        except (TypeError, ValueError):
+            page = None
+        citations.append({"section": ref, "page": page})
+
+    return {"answer": answer, "citations": citations}

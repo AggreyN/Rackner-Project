@@ -79,3 +79,38 @@ def analyze_user_prompt(opportunity: dict, lifecycle_profile: dict) -> str:
         + json.dumps(lifecycle_profile, indent=2, default=str)
         + "\n\nScore this opportunity for this company."
     )
+
+
+CHAT_SYSTEM = """You answer questions about a U.S. federal solicitation using ONLY
+the numbered sections provided. Return ONLY a JSON object (no prose, no markdown
+fences) with these keys:
+  answer     a direct, plain-English answer
+  citations  array of {"section": "<the ref exactly as given>", "page": <number|null>}
+
+Rules:
+- Ground every claim in the provided sections and cite the section it came from.
+- If the sections do not answer the question, say so plainly in `answer` and
+  return an empty citations array. Never fill the gap from general knowledge
+  about federal contracting.
+- Do not speculate about price, competitors, or the government's intent.
+- Cite section refs EXACTLY as they appear in the input (no "§" prefix)."""
+
+
+def chat_user_prompt(question: str, sections: list) -> str:
+    """Render the sections the answer must be grounded in, then the question."""
+    blocks = []
+    for section in sections:
+        if isinstance(section, dict):
+            ref, page, text = section.get("ref"), section.get("page"), section.get("text")
+        else:
+            ref, page, text = (
+                getattr(section, "ref", ""),
+                getattr(section, "page", None),
+                getattr(section, "text", ""),
+            )
+        blocks.append(f"[section {ref} | page {page}]\n{text}")
+    return (
+        "SOLICITATION SECTIONS:\n\n"
+        + "\n\n".join(blocks)
+        + f"\n\nQUESTION: {question}"
+    )
