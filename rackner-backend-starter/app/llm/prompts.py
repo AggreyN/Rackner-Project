@@ -38,6 +38,21 @@ technical_capability 0.20, mission_alignment 0.15, past_performance 0.15,
 contract_vehicle_access 0.10, set_aside_eligibility 0.10,
 incumbent_advantage_inverse 0.10, pricing_size_fit 0.10, time_to_respond 0.10.
 
+Score each factor 1-5 using these anchors (1 = poor fit, 5 = excellent fit):
+- technical_capability: 1 = required scope outside our capabilities; 5 = proven, mature capability for this exact scope.
+- mission_alignment: 1 = outside our target agencies/mission; 5 = squarely a target agency and a core mission area.
+- past_performance: 1 = no relevant, recent, or similar-size past performance; 5 = directly relevant, recent, comparable-size past performance.
+- contract_vehicle_access: 1 = requires a vehicle we cannot access; 5 = we hold the required vehicle, or it is open competition.
+- set_aside_eligibility: 1 = a set-aside we do not qualify for; 5 = fully eligible (or full-and-open, no restriction).
+- incumbent_advantage_inverse: INVERSE — 1 = strong, entrenched, long-tenured incumbent; 5 = weak or no incumbent, or recompete churn.
+- pricing_size_fit: 1 = estimated value far outside our size sweet spot; 5 = value squarely in our sweet spot.
+- time_to_respond: 1 = deadline too soon to prepare a strong proposal; 5 = ample runway to respond well.
+
+Base every score ONLY on evidence actually present in the inputs, and cite that
+evidence in the rationale. Never invent facts, competitors, prices, or
+relationships. If a factor has no supporting evidence, score it conservatively
+(2-3) and say so in the rationale.
+
 Do NOT compute compatibility_score or verdict — the backend derives those from
 the weighted factors."""
 
