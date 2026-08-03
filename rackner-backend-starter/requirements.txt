@@ -1,37 +1,37 @@
-# Team Anvil backend — dependencies through Week 7 (Citation grounding + OCR)
-# Install with:  pip install -r requirements.txt
-#
-# Each week adds to this file. A checkout of the `week6` tag only needs these.
+# Rackner FDI — backend dependencies.  Install:  pip install -r requirements.txt
 
-# --- Database (Week 1) ---
-SQLAlchemy>=2.0
-psycopg[binary]>=3.1      # PostgreSQL driver
-alembic>=1.13             # database migrations
-python-dotenv>=1.0        # loads your .env file
-
-# --- PDF parsing & ingestion (Week 2) ---
-PyMuPDF>=1.24             # imported as "fitz" — page text + word bounding boxes
-pdfplumber>=0.11          # tables + character-level coordinates, when needed
-
-# --- API (Week 3) ---
+# --- Web framework + server ---
 fastapi>=0.110
-uvicorn[standard]>=0.29   # the server that runs FastAPI
-python-multipart>=0.0.9   # FastAPI file uploads
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9     # FastAPI file uploads (solicitation PDFs)
 
-# --- Extraction (Week 3) ---
-# Only needed once Kaliza's extraction/extractor.py is present; the adapter
-# falls back to a deterministic mock when it (or ANTHROPIC_API_KEY) is missing.
-anthropic>=0.40
+# --- Database + migrations ---
+SQLAlchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.1        # PostgreSQL driver (postgresql+psycopg://)
 
-# --- Auth (Week 6 — only active when AUTH_ENABLED=true) ---
-passlib[bcrypt]>=1.7.4    # password hashing
-bcrypt<4.1                # PIN: passlib 1.7.4's backend probe breaks on bcrypt
-                          # 4.1+ ("password cannot be longer than 72 bytes"),
-                          # which makes every hash_password() call raise.
-PyJWT>=2.8                # session tokens
-pydantic[email]>=2.7      # email validation on auth endpoints
+# --- Auth ---
+passlib[bcrypt]>=1.7.4      # local-mode password hashing (bcrypt)
+bcrypt<4.1                  # PIN: passlib 1.7.4's backend probe breaks on bcrypt
+                            # 4.1+ ("password cannot be longer than 72 bytes"),
+                            # which makes every hash_password() call raise.
+python-jose[cryptography]>=3.3   # JWT sign/verify (local HS256 + Cognito RS256)
+boto3>=1.34                 # AWS SDK (Bedrock / Cognito / S3)
 
-# --- OCR fallback for scanned pages (Week 7 — optional) ---
+# --- Validation + config ---
+pydantic[email]>=2.7        # EmailStr on auth endpoints
+python-dotenv>=1.0          # load .env in development
+
+# --- HTTP (Cognito JWKS fetch; SAM.gov / USAspending later) ---
+requests>=2.31
+
+# --- Ingestion: PDF → text + word bounding boxes ---
+# Backs the citation guarantee in SCHEMA.md: source_page and the character/bbox
+# spans behind each obligation's verbatim_quote.
+PyMuPDF>=1.24               # imported as "fitz" — page text + word bounding boxes
+pdfplumber>=0.11            # tables + character-level coordinates, when needed
+
+# --- OCR fallback for scanned pages (optional) ---
 # Ingestion works without these; scanned pages just come back empty. To OCR them:
 #     pip install pytesseract pdf2image
 #     brew install tesseract poppler
