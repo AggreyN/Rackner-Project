@@ -8,7 +8,7 @@ survive all the way to the frontend highlight.
 import re
 from dataclasses import dataclass, field
 
-from ingestion.extract_pdf import boxes_for_span
+from app.ingestion.extract_pdf import boxes_for_span
 
 # Matches "52.204-21", "252.204-7012", with optional "FAR"/"DFARS" prefix.
 CLAUSE_REF = re.compile(r"\b(?:FAR\s+|DFARS\s+)?(52\.\d{3}-\d{1,3}|252\.\d{3}-\d{4})\b")
