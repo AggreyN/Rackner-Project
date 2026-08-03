@@ -78,16 +78,31 @@ def _guard_not_a_real_database(url: str) -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def _migrated(database_url):
-    """Run the real migration chain against the test database."""
+    """Run the real migration chain against a CLEAN test database.
+
+    The downgrade matters. A persistent test database (Postgres) keeps rows
+    between runs, and some records are built-once-never-reparsed by design —
+    source_documents especially. A stale row can make a test pass or fail based
+    on what a previous run happened to store, which is how a real ingest change
+    once showed up as a Postgres-only failure. SQLite hid it by getting a fresh
+    file each run. Starting from base makes both backends behave identically.
+    """
     _guard_not_a_real_database(database_url)
     env = {**os.environ, "DATABASE_URL": database_url}
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=BACKEND_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+
+    def _alembic(*args) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "alembic", *args],
+            cwd=BACKEND_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    # Drop whatever a previous run left behind. Harmless on a fresh database.
+    _alembic("downgrade", "base")
+
+    result = _alembic("upgrade", "head")
     if result.returncode != 0:
         pytest.fail(f"alembic upgrade head failed:\n{result.stdout}\n{result.stderr}")
     yield

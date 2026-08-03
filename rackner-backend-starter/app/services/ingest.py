@@ -23,6 +23,51 @@ PDFs (pypdf). Scanned/image-only PDFs come back empty — see the Textract hook.
 from __future__ import annotations
 
 import re
+import unicodedata
+
+# --- canonicalization --------------------------------------------------------
+# PDF extraction emits characters the model will not reproduce when asked to
+# quote verbatim: curly quotes, en/em dashes, non-breaking spaces, ligatures,
+# soft hyphens left over from justified text. Those cause a quote that is
+# correct in substance to fail an exact-substring test.
+#
+# We fix that ONCE, HERE, at the boundary where text enters the system — before
+# it is sectioned, stored, matched against, or served. That ordering is the
+# whole safety argument: the canonical string IS the served string, so
+# canonicalizing cannot desynchronize "what we match" from "what we serve".
+#
+# Doing this later — between verification and `GET /document` — is precisely
+# the bug this module's docstring warns about. Don't.
+
+_CHAR_FIXES = {
+    "‘": "'", "’": "'", "‚": "'", "‛": "'",  # single quotes
+    "“": '"', "”": '"', "„": '"', "‟": '"',  # double quotes
+    "‐": "-", "‑": "-", "‒": "-", "–": "-",  # hyphens/dashes
+    "—": "-", "―": "-", "−": "-",
+    " ": " ", " ": " ", " ": " ", " ": " ",  # hard spaces
+    "­": "",                                                # soft hyphen
+    "​": "", "‌": "", "‍": "", "﻿": "",      # zero-width
+}
+_CHAR_FIXES_TABLE = str.maketrans(_CHAR_FIXES)
+
+
+def canonicalize(text: str) -> str:
+    """The one normalization pass, applied where text enters the system.
+
+    NFKC folds ligatures and compatibility forms; the table above unifies the
+    punctuation PDF extractors vary on. Line endings become "\\n". Idempotent:
+    canonicalize(canonicalize(x)) == canonicalize(x).
+
+    Whitespace is NOT collapsed — that would change offsets and lose the
+    document's shape. Whitespace drift is handled at match time by
+    verify.realign_quote(), which snaps a quote back onto this exact string.
+    """
+    if not text:
+        return ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = unicodedata.normalize("NFKC", text)
+    return text.translate(_CHAR_FIXES_TABLE)
+
 
 # Headings we treat as section boundaries, matched on the ORIGINAL string so
 # every span index stays meaningful:
@@ -155,14 +200,16 @@ def pdf_to_text(data: bytes) -> str:
             pages.append(page.extract_text() or "")
         except Exception:
             pages.append("")
-    return _PAGE_BREAK.join(pages)
+    # Canonicalized here, at the boundary — everything downstream (sectioning,
+    # storage, verification, GET /document) sees this one string.
+    return canonicalize(_PAGE_BREAK.join(pages))
 
 
 def load_text(data: bytes, filename: str = "") -> str:
-    """Bytes → text. PDF if it looks like one, else decoded as UTF-8."""
+    """Bytes → canonical text. PDF if it looks like one, else decoded as UTF-8."""
     if data[:5] == b"%PDF-" or filename.lower().endswith(".pdf"):
         return pdf_to_text(data)
-    return data.decode("utf-8", errors="replace")
+    return canonicalize(data.decode("utf-8", errors="replace"))
 
 
 def build_source_document(opportunity, attachments: list[bytes] | None = None) -> dict:
@@ -182,6 +229,9 @@ def build_source_document(opportunity, attachments: list[bytes] | None = None) -
         sol_no = getattr(opportunity, "solicitation_number", "") or ""
         title = getattr(opportunity, "title", "") or ""
 
+    # The cached description comes from SAM.gov, not from load_text(), so it
+    # needs the same canonicalization the attachments already got.
+    description = canonicalize(description)
     parts = [description] if description.strip() else []
     for blob in attachments or []:
         text = load_text(blob)

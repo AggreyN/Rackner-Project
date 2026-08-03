@@ -128,7 +128,11 @@ def test_get_document(client, auth_headers, opportunity_id, solicitation):
     refs = [s["ref"] for s in secs]
     assert "C.3.1" in refs and "252.204-7012" in refs
     assert all(not s["ref"].startswith("§") for s in secs)
-    assert all(s["text"] in solicitation for s in secs)
+    # Sections are slices of the CANONICAL text (ingest normalizes smart
+    # punctuation at the boundary), not of the raw input string.
+    from app.services.ingest import canonicalize
+
+    assert all(s["text"] in canonicalize(solicitation) for s in secs)
 
 
 def test_document_is_stable_across_requests(client, auth_headers, opportunity_id):

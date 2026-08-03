@@ -21,7 +21,7 @@ import json
 
 from app import config
 from app.llm import mock, prompts
-from app.llm.verify import verify_quote
+from app.llm.verify import realign_quote, verify_quote
 from app.schemas import FitFactor, band_for, compatibility_score, verdict_for
 
 # Schema defaults so a sparse model response still produces a valid Obligation.
@@ -85,10 +85,21 @@ def _normalize_obligation(raw: dict, *, ob_id: int, section) -> dict:
         "section": ref.lstrip("§").strip(),
         "page": _section_field(section, "page", None),
     }
-    # Set by code against the exact served text, never by the model.
-    ob["verified"] = verify_quote(
-        ob["verbatim_quote"], _section_field(section, "text", "") or ""
-    )
+
+    section_text = _section_field(section, "text", "") or ""
+
+    # Repair before judging. The model reliably identifies the right passage but
+    # re-wraps whitespace across line breaks, which fails an exact match. If the
+    # quote can be placed unambiguously, swap in the source's own text for that
+    # span; otherwise leave the model's text untouched so the UI can show it as
+    # unconfirmed. Realignment never invents a quote — see verify.realign_quote.
+    repaired = realign_quote(ob["verbatim_quote"], section_text)
+    if repaired is not None:
+        ob["verbatim_quote"] = repaired
+
+    # Set by code against the exact served text, never by the model. Still an
+    # exact substring test — realignment changes the quote, never the standard.
+    ob["verified"] = verify_quote(ob["verbatim_quote"], section_text)
     return ob
 
 
