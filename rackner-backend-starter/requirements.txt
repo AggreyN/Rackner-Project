@@ -24,6 +24,10 @@ python-dotenv>=1.0          # load .env in development
 
 # --- HTTP (Cognito JWKS fetch; SAM.gov / USAspending later) ---
 requests>=2.31
+
+# --- Tests ---
+pytest>=8.0
+httpx>=0.27                 # required by fastapi.testclient
 tenacity>=8.2               # timeouts + retries on external gov APIs
 
 # --- Ingestion: PDF → text ---

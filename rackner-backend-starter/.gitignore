@@ -15,9 +15,13 @@ __pycache__/
 # Local SQLite (used for quick smoke tests only; prod is Postgres)
 *.db
 
-# Data — don't commit downloaded PDFs
+# Data — don't commit downloaded PDFs or uploaded plans
 data/samples/*
 !data/samples/.gitkeep
+data/uploads/
+
+# Test artifacts
+.pytest_cache/
 
 # OS / editor
 .DS_Store

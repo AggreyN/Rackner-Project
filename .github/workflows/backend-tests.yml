@@ -1,0 +1,57 @@
+name: backend tests
+
+on:
+  push:
+    paths: ["rackner-backend-starter/**", "frontend/src/lib/types.ts", ".github/workflows/backend-tests.yml"]
+  pull_request:
+    paths: ["rackner-backend-starter/**", "frontend/src/lib/types.ts", ".github/workflows/backend-tests.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # The suite runs on Postgres here, not SQLite. SQLite is the fast local
+    # default; Postgres is what actually ships, and the two differ on Numeric,
+    # JSON and Date handling.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rackner_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+
+    defaults:
+      run:
+        working-directory: rackner-backend-starter
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: rackner-backend-starter/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # No AWS credentials are configured on purpose: the suite must pass with
+      # LLM_MODE=mock and AUTH_MODE=local so a broken flag default is caught.
+      - name: Run tests (Postgres)
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/rackner_test
+        run: python -m pytest
+
+      - name: Run tests (SQLite)
+        run: python -m pytest
+
+      - name: Verify the app boots with AWS flags on and no credentials
+        env:
+          LLM_MODE: bedrock
+          AUTH_MODE: cognito
+        run: python -c "import app.main; print('boots with bedrock+cognito, no creds')"
