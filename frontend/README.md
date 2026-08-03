@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Rackner FDI — Frontend
 
-## Getting Started
+Federal Document Intelligence & opportunity capture (post-pivot, 7/22 reframing).
+Search live SAM.gov opportunities, score fit against Rackner's Opportunity
+Lifecycle plan with cited evidence, follow the money on USAspending, and find
+the contracting contact.
 
-First, run the development server:
+Next.js 16 · React 19 · TypeScript · Tailwind 4 · Playwright.
+
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev            # http://localhost:3000 — runs against the built-in mock
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+No backend or API keys needed: with `NEXT_PUBLIC_API_URL` unset, `lib/api.ts`
+routes every call to the in-browser mock (`lib/mock.ts`). Point it at the
+FastAPI backend to go live — no component changes:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Mock sign-in accepts any `@rackner.com` email + any password.
 
-## Learn More
+## The flow (Phase 1)
 
-To learn more about Next.js, take a look at the following resources:
+1. **Sign in** (`/login`) — JWT from `POST /auth/login`; bcrypt hashes server-side.
+2. **Lifecycle plan on file** — chip in the top bar; the parsed "fit profile" powers scoring.
+3. **Search / discover** (`/`) — SAM.gov search + suggested contracts ranked by fit.
+4. **Analyze** (`/opportunity/[id]`) — compatibility donut (8 weighted CAP factors),
+   obligations grouped by time/type with **verified citations**, click-to-cite highlight
+   in the collapsible source pane.
+5. **Follow the money** — USAspending spend history + incumbent.
+6. **Find the contact** — discovered email w/ confidence + the Procurement Integrity flag.
+7. **Ask the assistant** — per-opportunity chat, answers cited to the source.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Architecture notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `src/lib/types.ts` — the **locked schema** (the team contract).
+- `src/lib/api.ts` — every backend call + the expected FastAPI route list; the only
+  file that talks to the network.
+- `src/lib/mock.ts` — seeded demo data; quotes are exact substrings of the source
+  sections so verification/highlighting behave like production.
+- Cut in the pivot: role picker, PII pre-upload scan, 3-day retention, upload-first flow.
 
-## Deploy on Vercel
+## Tests
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npx playwright test        # desktop + tablet + mobile, against the mock on :3100
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Covers: auth redirect/sign-in/out, suggested ranking + fit badges, search,
+lifecycle profile modal, donut + 8 factors, obligations regrouping, click-to-cite
+glow, pane collapse/toggle, spend panel, contact + integrity flag, chat citations.

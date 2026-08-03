@@ -1,0 +1,214 @@
+"use client";
+
+// The analysis workspace — the demo's heart. Split pane: compatibility
+// score, cited obligations, spend history, contact, and the assistant on
+// the left; the source document on the right (collapsible on desktop,
+// toggled on mobile). Every claim links back to the source text.
+
+import { use, useEffect, useState } from "react";
+import Link from "next/link";
+import TopBar from "@/components/TopBar";
+import CompatibilityPanel from "@/components/CompatibilityPanel";
+import ObligationsPanel, { type CiteTarget } from "@/components/ObligationsPanel";
+import SourcePane from "@/components/SourcePane";
+import SpendPanel from "@/components/SpendPanel";
+import ContactPanel from "@/components/ContactPanel";
+import ChatPanel from "@/components/ChatPanel";
+import { useRequireAuth } from "@/hooks/useRequireAuth";
+import {
+  getAnalysis,
+  getContact,
+  getOpportunity,
+  getProfile,
+  getSourceDocument,
+  getSpend,
+} from "@/lib/api";
+import type {
+  Analysis,
+  ContactResult,
+  OpportunitySummary,
+  Profile,
+  SourceDocument,
+  SpendSummary,
+} from "@/lib/types";
+
+export default function OpportunityPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const { ready, email } = useRequireAuth();
+
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [opp, setOpp] = useState<OpportunitySummary | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [doc, setDoc] = useState<SourceDocument | null>(null);
+  const [docMissing, setDocMissing] = useState(false); // no RFP posted yet
+  const [spend, setSpend] = useState<SpendSummary | null>(null);
+  const [contact, setContact] = useState<ContactResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [cite, setCite] = useState<CiteTarget | null>(null);
+  const [collapsed, setCollapsed] = useState(false); // desktop right pane
+  const [mobilePane, setMobilePane] = useState<"analysis" | "source">("analysis");
+
+  useEffect(() => {
+    if (!ready) return;
+    if (email) getProfile(email).then(setProfile).catch(() => {});
+    getOpportunity(id).then(setOpp).catch((e) => setError(String(e)));
+    getAnalysis(id).then(setAnalysis).catch((e) => setError(String(e)));
+    getSourceDocument(id)
+      .then(setDoc)
+      .catch(() => setDocMissing(true));
+    getSpend(id).then(setSpend).catch(() => {});
+    getContact(id).then(setContact).catch(() => {});
+  }, [ready, email, id]);
+
+  function handleCite(target: CiteTarget) {
+    setCite(target);
+    setCollapsed(false); // desktop: make sure the evidence is visible
+    setMobilePane("source"); // mobile: flip to the document
+  }
+
+  if (!ready) return <main className="min-h-screen bg-[#f5f7f9]" />;
+
+  const subLine = opp
+    ? [
+        opp.agency,
+        opp.office,
+        opp.solicitation_number ? `Solicitation ${opp.solicitation_number}` : null,
+        opp.naics ? `NAICS ${opp.naics}` : null,
+        opp.set_aside ? `${opp.set_aside} set-aside` : null,
+        opp.close_date
+          ? `Closes ${new Date(opp.close_date + "T00:00:00").toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
+  return (
+    <main className="flex h-screen flex-col bg-[#f5f7f9]">
+      <TopBar profile={profile} />
+
+      {/* mobile pane toggle */}
+      <div className="flex border-b border-[#d7dee6] bg-white lg:hidden">
+        {(["analysis", "source"] as const).map((p) => (
+          <button
+            key={p}
+            onClick={() => setMobilePane(p)}
+            className={
+              "flex-1 py-2.5 text-center text-xs font-semibold uppercase tracking-widest " +
+              (mobilePane === p
+                ? "border-b-2 border-[#16324f] text-[#16324f]"
+                : "text-[#51606f]")
+            }
+          >
+            {p === "analysis" ? "Analysis" : "Source doc"}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex min-h-0 flex-1">
+        {/* LEFT — analysis */}
+        <div
+          className={
+            "min-w-0 overflow-y-auto px-4 py-5 sm:px-6 " +
+            (mobilePane === "analysis" ? "block " : "hidden ") +
+            "w-full lg:block " +
+            (collapsed ? "lg:flex-1" : "lg:w-[52%]")
+          }
+        >
+          <Link
+            href="/"
+            className="mb-3 inline-flex items-center gap-1.5 text-[13px] text-[#16324f] hover:underline"
+          >
+            ← Back to search
+          </Link>
+
+          {error && (
+            <p className="mb-4 border border-[#d7dee6] bg-white p-4 text-sm text-[#a3231f]">
+              {error}
+            </p>
+          )}
+
+          <h1 className="text-lg font-semibold leading-snug text-[#16324f]">
+            {opp?.title ?? "Loading opportunity…"}
+          </h1>
+          <p className="mb-4 mt-0.5 text-xs text-[#51606f]">{subLine}</p>
+
+          <div className="space-y-4">
+            {analysis ? (
+              <>
+                <CompatibilityPanel analysis={analysis} onCite={handleCite} />
+                {analysis.obligations.length > 0 ? (
+                  <ObligationsPanel obligations={analysis.obligations} onCite={handleCite} />
+                ) : (
+                  <div
+                    className="border border-[#d7dee6] bg-white p-4 sm:p-5"
+                    data-testid="no-solicitation"
+                  >
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#51606f]">
+                      Obligations
+                    </h3>
+                    <p className="text-sm leading-relaxed text-[#51606f]">
+                      No solicitation has been posted for this recompete yet, so there is nothing
+                      to extract or cite. Fit above is scored from the current award&apos;s scope
+                      and its USAspending record.{" "}
+                      {opp?.months_to_expiry !== null && opp?.months_to_expiry !== undefined && (
+                        <>
+                          Expect an RFP roughly{" "}
+                          <b className="text-[#16324f]">
+                            {Math.max(opp.months_to_expiry - 6, 0)}–{opp.months_to_expiry} months
+                          </b>{" "}
+                          from now — shape it before then.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                )}
+              </>
+            ) : (
+              !error && (
+                <div className="border border-[#d7dee6] bg-white p-5" data-testid="analysis-loading">
+                  <div className="flex items-center gap-3">
+                    <div className="h-[64px] w-[64px] animate-pulse rounded-full bg-[#eef2f6]" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3 w-2/3 animate-pulse bg-[#eef2f6]" />
+                      <div className="h-3 w-1/2 animate-pulse bg-[#eef2f6]" />
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-[#51606f]">
+                    Scoring against your lifecycle plan and extracting cited obligations…
+                  </p>
+                </div>
+              )
+            )}
+
+            {spend && <SpendPanel spend={spend} />}
+            {contact && <ContactPanel contact={contact} />}
+            <ChatPanel opportunityId={id} onCite={handleCite} />
+          </div>
+        </div>
+
+        {/* RIGHT — source document */}
+        <div
+          className={
+            "min-h-0 min-w-0 flex-1 " +
+            (mobilePane === "source" ? "flex " : "hidden ") +
+            (collapsed ? "lg:flex lg:flex-none" : "lg:flex")
+          }
+        >
+          <SourcePane
+            doc={doc}
+            unavailable={docMissing}
+            cite={cite}
+            collapsed={collapsed}
+            onToggle={() => setCollapsed(!collapsed)}
+          />
+        </div>
+      </div>
+    </main>
+  );
+}
