@@ -158,13 +158,26 @@ def _collect(
             samgov.search(query, kinds=[k for k in kinds if k in SAM_KINDS] or None, limit=limit)
         )
     if wants_expiring:
-        results.extend(
-            usaspending.expiring_awards(
-                from_months=expiring_from if expiring_from is not None else 12,
-                to_months=expiring_to if expiring_to is not None else 18,
-                limit=limit,
-            )
+        expiring = usaspending.expiring_awards(
+            from_months=expiring_from if expiring_from is not None else 12,
+            to_months=expiring_to if expiring_to is not None else 18,
+            limit=limit,
         )
+        # USAspending has no free-text search, so apply `q` here — otherwise a
+        # text search would return recompete rows about anything, which reads
+        # as wrong results rather than a missing filter.
+        if query:
+            needle = query.lower()
+            expiring = [
+                row
+                for row in expiring
+                if needle
+                in " ".join(
+                    str(row.get(field) or "")
+                    for field in ("title", "description", "incumbent", "agency", "solicitation_number")
+                ).lower()
+            ]
+        results.extend(expiring)
     return results
 
 

@@ -97,7 +97,10 @@ def test_search_requires_auth(client):
 
 
 def test_search_returns_both_kinds(client, auth_headers, stub_upstreams):
-    r = client.get("/opportunities/search?q=monitoring", headers=auth_headers)
+    # No q: a free-text query now filters expiring awards too (the stub award
+    # is about managed care, so q=monitoring would rightly exclude it — that
+    # behaviour has its own tests in test_week3_regressions.py).
+    r = client.get("/opportunities/search", headers=auth_headers)
     assert r.status_code == 200, r.text
     kinds = {o["kind"] for o in r.json()}
     assert kinds == {"solicitation", "expiring_award"}

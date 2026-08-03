@@ -124,9 +124,15 @@ def ensure_analysis(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
         factors=result["factors"],
         obligations=result["obligations"],
     )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+    # Persist (= cache) only analyses that had source text to ground in. An
+    # analysis generated against zero sections has no obligations by
+    # construction; caching it would freeze that empty result even after the
+    # description arrives and the document rebuilds. Returned transient, it is
+    # regenerated on each request until grounding exists, then cached.
+    if doc.sections:
+        db.add(row)
+        db.commit()
+        db.refresh(row)
     return row
 
 

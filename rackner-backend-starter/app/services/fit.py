@@ -23,8 +23,24 @@ _W_SET_ASIDE = 20.0
 _W_CAPABILITY = 15.0
 
 
+# SAM renders agencies as e.g. "DEPT OF DEFENSE" while lifecycle plans say
+# "Department of Defense". Without expansion the substring match scores the
+# SAME agency zero. Applied word-by-word after lowercasing.
+_ABBREVIATIONS = {
+    "dept": "department",
+    "govt": "government",
+    "admin": "administration",
+    "natl": "national",
+    "u.s": "us",
+    "u.s.": "us",
+}
+
+
 def _norm(value: str) -> str:
-    return " ".join((value or "").lower().split())
+    words = (value or "").lower().replace("&", " and ").split()
+    return " ".join(
+        _ABBREVIATIONS.get(w, _ABBREVIATIONS.get(w.rstrip("."), w)) for w in words
+    )
 
 
 def _naics_score(opp_naics: str | None, plan_codes: list[str]) -> float:

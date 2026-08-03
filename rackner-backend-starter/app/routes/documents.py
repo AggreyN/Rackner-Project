@@ -29,14 +29,27 @@ router = APIRouter(tags=["document"])
 
 
 def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
-    """Return the stored SourceDocument for this opportunity, building it once."""
+    """Return the stored SourceDocument for this opportunity, building it once.
+
+    One exception to build-once: a document built when the opportunity had no
+    source text yet. Search caches opportunities WITHOUT descriptions (the
+    description is a second, slow SAM call made on the detail path), so hitting
+    /document, /chat or /analysis before the detail view builds an empty
+    document. Once real text exists, an empty document is rebuilt — safe,
+    because nothing can have verified against zero sections, so no quote's
+    grounding text changes out from under it.
+    """
     doc = db.scalar(
         select(SourceDocumentModel).where(
             SourceDocumentModel.opportunity_id == opp.id
         )
     )
     if doc is not None:
-        return doc
+        if doc.sections or not (opp.description or "").strip():
+            return doc
+        # Built before any source text existed; rebuild now that it does.
+        db.delete(doc)
+        db.flush()
 
     payload = ingest.build_source_document(opp)
     doc = SourceDocumentModel(opportunity_id=opp.id, label=payload["label"])

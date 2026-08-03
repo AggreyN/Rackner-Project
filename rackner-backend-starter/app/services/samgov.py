@@ -184,10 +184,25 @@ def search(
 
 
 def get_opportunity(notice_id: str, *, today: datetime.date | None = None) -> dict | None:
-    """Fetch one notice by id. Returns None when SAM has no such record."""
+    """Fetch one notice by id. Returns None when SAM has no such record.
+
+    SAM v2 requires postedFrom/postedTo on EVERY request — including noticeid
+    lookups — and rejects windows over one year. So this looks back the maximum
+    364 days; a notice older than that isn't findable by id here, and the
+    caller falls back to its cached row.
+    """
     key = _require_key()
+    today = today or datetime.date.today()
     payload = get_json(
-        SEARCH_URL, service=SERVICE, params={"api_key": key, "noticeid": notice_id, "limit": 1}
+        SEARCH_URL,
+        service=SERVICE,
+        params={
+            "api_key": key,
+            "noticeid": notice_id,
+            "limit": 1,
+            "postedFrom": (today - datetime.timedelta(days=364)).strftime("%m/%d/%Y"),
+            "postedTo": today.strftime("%m/%d/%Y"),
+        },
     )
     records = payload.get("opportunitiesData") or []
     return to_summary(records[0], today=today) if records else None
