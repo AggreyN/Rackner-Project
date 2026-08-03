@@ -115,6 +115,46 @@ def test_build_source_document_on_a_real_pdf(sample_pdfs):
     pytest.skip("no sample PDF had a text layer")
 
 
+def test_no_section_is_unbounded(parsed):
+    """REGRESSION: a 638-page sample once collapsed into ONE 1.24M-char section.
+
+    An unbounded section exceeds the model's context in a single call and makes
+    citation.section meaningless — every quote cites the same section. The
+    page-based fallback in ingest._split_by_page keeps sections bounded when no
+    clause headings are found.
+    """
+    LIMIT = 200_000
+    for name, raw, sections in parsed:
+        biggest = max((len(s["text"]) for s in sections), default=0)
+        assert biggest <= LIMIT, (
+            f"{name}: a single section holds {biggest} chars. Sectioning has "
+            f"collapsed — check ingest.split_sections and its page fallback."
+        )
+
+
+def test_multipage_documents_produce_multiple_sections(parsed):
+    """A document spanning many pages must not be served as one blob."""
+    for name, raw, sections in parsed:
+        pages = raw.count("\f") + 1
+        if pages > 10:
+            assert len(sections) > 1, f"{name}: {pages} pages collapsed to one section"
+
+
+def test_scanned_pdfs_are_skipped_not_crashed(sample_pdfs):
+    """Two of the committed samples are image-only.
+
+    They must extract to empty and be skipped, never raise. Wiring Textract
+    (ingest.pdf_to_text's TODO) is what would make them usable.
+    """
+    empty = []
+    for path in sample_pdfs:
+        text = ingest.pdf_to_text(path.read_bytes())  # must not raise
+        if not text.strip():
+            empty.append(path.name)
+    # Documented, not asserted to a fixed count — adding samples shouldn't fail.
+    assert len(empty) < len(sample_pdfs), "every sample is unreadable"
+
+
 def test_scanned_pdf_degrades_instead_of_raising():
     """Image-only PDFs must return '' so callers can fall back, not crash."""
     assert ingest.pdf_to_text(b"%PDF-1.4\nnot really a pdf") == ""

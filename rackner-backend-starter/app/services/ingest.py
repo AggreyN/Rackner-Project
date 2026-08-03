@@ -49,6 +49,43 @@ def _page_for_offset(raw: str, offset: int) -> int:
     return raw.count(_PAGE_BREAK, 0, offset) + 1
 
 
+def _split_by_page(raw: str) -> list[dict]:
+    """Fallback when no clause headings are found: one section per page.
+
+    Measured on real solicitations, some documents expose no matchable heading
+    structure at all — a 638-page sample collapsed to a single 1.24M-character
+    section. That is unusable: it exceeds the model's context in one call and
+    makes `citation.section` meaningless because every quote cites the same
+    section.
+
+    Page boundaries always exist (the PDF reader inserts form feeds), so they
+    give a bounded, honest unit of citation. Refs are "p1", "p2", ... which are
+    clearly not clause ids.
+
+    Slices only — concatenating the results reproduces `raw` exactly, form feeds
+    included.
+    """
+    sections: list[dict] = []
+    start = 0
+    page = 1
+    while start < len(raw):
+        nxt = raw.find(_PAGE_BREAK, start)
+        end = len(raw) if nxt == -1 else nxt + 1  # keep the \f with its page
+        chunk = raw[start:end]
+        if chunk.strip():
+            sections.append(
+                {"ref": f"p{page}", "heading": "", "text": chunk, "page": page}
+            )
+        elif sections:
+            # Blank page: append to the previous section so no character is lost.
+            sections[-1]["text"] += chunk
+        elif chunk:
+            sections.append({"ref": f"p{page}", "heading": "", "text": chunk, "page": page})
+        start = end
+        page += 1
+    return sections
+
+
 def split_sections(raw: str) -> list[dict]:
     """Split raw text into sections without altering a single character.
 
@@ -61,8 +98,7 @@ def split_sections(raw: str) -> list[dict]:
 
     matches = list(_HEADING_RE.finditer(raw))
     if not matches:
-        # No recognizable structure — one section holding the whole string.
-        return [{"ref": "1", "heading": "", "text": raw, "page": 1}]
+        return _split_by_page(raw)
 
     sections: list[dict] = []
 
