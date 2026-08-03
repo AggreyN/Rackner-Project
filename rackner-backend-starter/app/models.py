@@ -18,6 +18,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Integer,
     JSON,
     Numeric,
     String,
@@ -65,11 +66,15 @@ class LifecycleProfile(Base):
     capabilities: Mapped[list | None] = mapped_column(JSON)
     target_agencies: Mapped[list | None] = mapped_column(JSON)
     naics_codes: Mapped[list | None] = mapped_column(JSON)
+    set_aside_status: Mapped[list | None] = mapped_column(JSON)  # → wire `set_asides`
+    # Kept on disk but NOT on the v2 wire type: they still feed past_performance
+    # and pricing_size_fit scoring server-side. See SCHEMA_v2.md "DB ↔ wire".
     past_performance: Mapped[list | None] = mapped_column(JSON)
     contract_vehicles: Mapped[list | None] = mapped_column(JSON)
-    set_aside_status: Mapped[list | None] = mapped_column(JSON)
-    size_min: Mapped[float | None] = mapped_column(Numeric)  # → size_targets.min_value
-    size_max: Mapped[float | None] = mapped_column(Numeric)  # → size_targets.max_value
+    size_min: Mapped[float | None] = mapped_column(Numeric)
+    size_max: Mapped[float | None] = mapped_column(Numeric)
+    # Provenance of the uploaded plan (v2 exposes filename + uploaded_at).
+    filename: Mapped[str] = mapped_column(String(512), default="")
     source_s3_key: Mapped[str | None] = mapped_column(String(1024))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
@@ -82,19 +87,30 @@ class LifecycleProfile(Base):
 
 
 class Opportunity(Base):
-    """A SAM.gov solicitation. Cached here; the PK is SAM.gov's notice id."""
+    """A capture target. Either a SAM.gov notice or — when kind='expiring_award' —
+    a USAspending award whose period of performance is ending (a recompete that
+    hasn't been solicited yet). The PK is SAM.gov's notice id or the award id."""
 
     __tablename__ = "opportunities"
 
-    id: Mapped[str] = mapped_column(String(255), primary_key=True)  # SAM.gov notice id
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
     title: Mapped[str] = mapped_column(String(1000))
     agency: Mapped[str] = mapped_column(String(500))
+    office: Mapped[str | None] = mapped_column(String(500))
+    solicitation_number: Mapped[str | None] = mapped_column(String(255))
     naics: Mapped[str | None] = mapped_column(String(20))
     set_aside: Mapped[str | None] = mapped_column(String(255))
-    response_deadline: Mapped[date | None] = mapped_column(Date)
-    estimated_value: Mapped[float | None] = mapped_column(Numeric)
+    kind: Mapped[str] = mapped_column(String(32), default="solicitation")
     description: Mapped[str] = mapped_column(Text, default="")
     source_url: Mapped[str] = mapped_column(String(1000), default="")
+    # Live solicitations. `days_to_close` is derived at serialization, not stored.
+    close_date: Mapped[date | None] = mapped_column(Date)
+    est_value: Mapped[str | None] = mapped_column(String(255))  # display string
+    incumbent: Mapped[str | None] = mapped_column(String(500))
+    # Recompete radar — expiring_award rows only; null on live solicitations.
+    # `months_to_expiry` is derived from expiry_date at serialization.
+    expiry_date: Mapped[date | None] = mapped_column(Date, index=True)
+    current_award_value: Mapped[float | None] = mapped_column(Numeric)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
@@ -103,6 +119,9 @@ class Opportunity(Base):
         back_populates="opportunity", cascade="all, delete-orphan"
     )
     contacts: Mapped[list["Contact"]] = relationship(
+        back_populates="opportunity", cascade="all, delete-orphan"
+    )
+    source_documents: Mapped[list["SourceDocument"]] = relationship(
         back_populates="opportunity", cascade="all, delete-orphan"
     )
 
@@ -119,10 +138,12 @@ class Analysis(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-    compatibility_score: Mapped[float] = mapped_column(Float)  # 0–100
-    verdict: Mapped[str] = mapped_column(String(20))  # pursue | conditional | no_bid
-    summary: Mapped[str] = mapped_column(Text, default="")
-    factors: Mapped[list | None] = mapped_column(JSON)  # [{name,weight,score,rationale}]
+    score: Mapped[float] = mapped_column(Float)  # 0–100
+    band: Mapped[str] = mapped_column(String(20))  # pursue | conditional | no_bid
+    # Free-text one-liner for humans. v2 keeps `band` AND `verdict` as separate
+    # things — `verdict` is prose, `band` is the enum. Not a rename.
+    verdict: Mapped[str] = mapped_column(Text, default="")
+    factors: Mapped[list | None] = mapped_column(JSON)  # [FitFactor]
     obligations: Mapped[list | None] = mapped_column(JSON)  # [Obligation]
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
@@ -142,13 +163,65 @@ class Contact(Base):
         ForeignKey("opportunities.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(255))
-    title: Mapped[str] = mapped_column(String(255))
-    agency: Mapped[str] = mapped_column(String(500))
-    email: Mapped[str] = mapped_column(String(320))
+    title: Mapped[str] = mapped_column(String(255), default="")
+    office: Mapped[str] = mapped_column(String(500), default="")
+    email: Mapped[str] = mapped_column(String(320), default="")
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
-    procurement_integrity_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Procurement Integrity Act guard: true while the solicitation is active.
+    active_solicitation: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
 
     opportunity: Mapped["Opportunity"] = relationship(back_populates="contacts")
+
+
+class SourceDocument(Base):
+    """The parsed solicitation behind one opportunity — the grounding record.
+
+    Persisted so `GET /document` and the analysis path read the byte-identical
+    section text. That identity is what makes the UI's `text.indexOf(quote)`
+    highlight succeed for every verified quote.
+    """
+
+    __tablename__ = "source_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        ForeignKey("opportunities.id", ondelete="CASCADE"), index=True
+    )
+    label: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+    opportunity: Mapped["Opportunity"] = relationship(
+        back_populates="source_documents"
+    )
+    sections: Mapped[list["SourceSection"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="SourceSection.position",
+    )
+
+
+class SourceSection(Base):
+    """One clause/section of a parsed solicitation.
+
+    `text` is the canonical string. Never normalize it on the way in or out —
+    quote verification and the UI highlight both depend on it being byte-exact.
+    """
+
+    __tablename__ = "source_sections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("source_documents.id", ondelete="CASCADE"), index=True
+    )
+    ref: Mapped[str] = mapped_column(String(255), default="")  # "C.3.1", no "§"
+    heading: Mapped[str] = mapped_column(String(1000), default="")
+    text: Mapped[str] = mapped_column(Text, default="")
+    page: Mapped[int] = mapped_column(Integer, default=1)
+    position: Mapped[int] = mapped_column(Integer, default=0)  # document order
+
+    document: Mapped["SourceDocument"] = relationship(back_populates="sections")

@@ -1,103 +1,188 @@
+"""Rackner FDI — shared schema v2 (backend, Pydantic v2).
+
+MIRRORS SCHEMA_v2.md, which is derived from Remy's frontend/src/lib/types.ts.
+If a field disagrees, types.ts wins — change it there, then SCHEMA_v2.md, then
+here. See SCHEMA_v2.md's "v1 → v2 changes" table for the renames.
+
+Note the two things that most often get written back to v1 by mistake:
+  * Analysis has BOTH `band` (the enum) and `verdict` (a free-text one-liner).
+    `verdict` was NOT renamed to `band`; v2 has both, meaning different things.
+  * Analysis.score, not compatibility_score.
 """
-Rackner FDI — shared schema (backend, Pydantic v2).
-MIRRORS SCHEMA.md EXACTLY. If SCHEMA.md changes, change this to match.
-Place at: app/schemas.py  (copied verbatim from the lock-shared-schema contract)
-"""
+
 from __future__ import annotations
+
 from typing import Literal, Optional
+
 from pydantic import BaseModel, Field
 
-ObligationType = Literal[
-    "report", "deliverable", "certification", "flow-down", "cyber", "legal", "financial"
+# --- enums -------------------------------------------------------------------
+
+OpportunityKind = Literal[
+    "solicitation", "baa", "sources_sought", "presolicitation", "expiring_award"
 ]
-TimeBucket = Literal["immediate", "30_days", "quarterly", "ongoing", "unclear"]
-Verdict = Literal["pursue", "conditional", "no_bid"]
+FitBand = Literal["pursue", "conditional", "no_bid"]
+TimeBucket = Literal[
+    "immediate", "30_days", "at_award", "quarterly", "ongoing", "unclear"
+]
 
 
-class Obligation(BaseModel):
-    plain_english_text: str
-    obligation_type: ObligationType
-    trigger_or_deadline: Optional[str] = None
-    responsible_party: Optional[str] = None
-    time_bucket: TimeBucket = "unclear"
-    verbatim_quote: str
-    source_page: Optional[int] = None
-    source_ref: Optional[str] = None
-    verified: bool = False
-    confidence: float = Field(ge=0.0, le=1.0)
+# --- auth & profile ----------------------------------------------------------
 
 
-class CompatibilityFactor(BaseModel):
-    name: str
-    weight: float = Field(ge=0.0, le=1.0)
-    score: float = Field(ge=1.0, le=5.0)
-    rationale: str
-
-
-class Incumbent(BaseModel):
-    name: str
-    uei: str
-
-
-class SpendByYear(BaseModel):
-    year: str
-    amount: float
-
-
-class SpendSummary(BaseModel):
-    total_obligated: float
-    incumbent: Optional[Incumbent] = None
-    by_year: list[SpendByYear] = Field(default_factory=list)
-    trend: str = ""
-
-
-class Contact(BaseModel):
-    name: str
-    title: str
-    agency: str
+class User(BaseModel):
     email: str
-    confidence: float = Field(ge=0.0, le=1.0)
-    procurement_integrity_flag: bool = False
-
-
-class Opportunity(BaseModel):
-    id: str
-    title: str
-    agency: str
-    naics: Optional[str] = None
-    set_aside: Optional[str] = None
-    response_deadline: Optional[str] = None
-    estimated_value: Optional[float] = None
-    description: str = ""
-    source_url: str = ""
-
-
-class SizeTargets(BaseModel):
-    min_value: float = 0
-    max_value: float = 0
+    org: str = ""
+    initials: str = ""
 
 
 class LifecycleProfile(BaseModel):
+    """The wire shape. The DB table keeps extra scoring columns (past_performance,
+    contract_vehicles, size_min/size_max) that v2 deliberately does not expose."""
+
+    filename: str = ""
+    uploaded_at: Optional[str] = None
     capabilities: list[str] = Field(default_factory=list)
-    target_agencies: list[str] = Field(default_factory=list)
     naics_codes: list[str] = Field(default_factory=list)
-    past_performance: list[str] = Field(default_factory=list)
-    contract_vehicles: list[str] = Field(default_factory=list)
-    set_aside_status: list[str] = Field(default_factory=list)
-    size_targets: SizeTargets = Field(default_factory=SizeTargets)
+    target_agencies: list[str] = Field(default_factory=list)
+    set_asides: list[str] = Field(default_factory=list)
+
+
+class Profile(BaseModel):
+    user: User
+    lifecycle: Optional[LifecycleProfile] = None
+
+
+# --- opportunities -----------------------------------------------------------
+
+
+class OpportunitySummary(BaseModel):
+    id: str
+    title: str
+    agency: str
+    office: Optional[str] = None
+    solicitation_number: Optional[str] = None
+    naics: Optional[str] = None
+    set_aside: Optional[str] = None
+    kind: OpportunityKind = "solicitation"
+    description: str = ""
+    # Live solicitations only; null on expiring_award rows.
+    close_date: Optional[str] = None
+    days_to_close: Optional[int] = None
+    est_value: Optional[str] = None  # display string, e.g. "$8–12M / 5yr"
+    incumbent: Optional[str] = None
+    fit_score: Optional[float] = None  # 0–100; null with no lifecycle plan on file
+    # expiring_award only; null on live solicitations.
+    expiry_date: Optional[str] = None
+    months_to_expiry: Optional[int] = None
+    current_award_value: Optional[float] = None
+
+
+# --- analysis ----------------------------------------------------------------
+
+
+class Citation(BaseModel):
+    section: str  # matches a SourceSection.ref — stored WITHOUT the "§" prefix
+    page: Optional[int] = None
+
+
+class FitFactor(BaseModel):
+    key: str
+    label: str
+    weight: float = Field(ge=0.0, le=1.0)
+    score: float = Field(ge=1.0, le=5.0)
+    rationale: str
+    citation: Optional[Citation] = None
+
+
+class Obligation(BaseModel):
+    id: int
+    text: str
+    obligation_type: str = ""
+    time_bucket: TimeBucket = "unclear"
+    deadline_label: str = ""
+    verbatim_quote: str
+    citation: Citation
+    verified: bool = False
 
 
 class Analysis(BaseModel):
     opportunity_id: str
-    compatibility_score: float = Field(ge=0.0, le=100.0)
-    verdict: Verdict
-    summary: str = ""
-    factors: list[CompatibilityFactor] = Field(default_factory=list)
+    score: float = Field(ge=0.0, le=100.0)
+    band: FitBand
+    verdict: str = ""  # free-text one-liner for humans, NOT the enum
+    factors: list[FitFactor] = Field(default_factory=list)
     obligations: list[Obligation] = Field(default_factory=list)
-    spend: Optional[SpendSummary] = None
-    contact: Optional[Contact] = None
-    generated_at: Optional[str] = None
 
+
+# --- source document ---------------------------------------------------------
+
+
+class SourceSection(BaseModel):
+    ref: str
+    heading: str = ""
+    text: str  # the canonical string quotes are matched against
+    page: int = 1
+
+
+class SourceDocument(BaseModel):
+    opportunity_id: str
+    label: str = ""
+    sections: list[SourceSection] = Field(default_factory=list)
+
+
+# --- spend -------------------------------------------------------------------
+
+
+class Incumbent(BaseModel):
+    name: str
+    uei: str = ""
+
+
+class SpendYear(BaseModel):
+    fiscal_year: str  # "FY25"
+    amount: float
+
+
+class SpendSummary(BaseModel):
+    opportunity_id: str
+    years: list[SpendYear] = Field(default_factory=list)
+    total_obligated: float = 0.0
+    incumbent: Optional[Incumbent] = None
+    trend_pct: Optional[float] = None
+
+
+# --- contact -----------------------------------------------------------------
+
+
+class ContactResult(BaseModel):
+    opportunity_id: str
+    name: str
+    title: str = ""
+    office: str = ""
+    email: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    active_solicitation: bool = False
+
+
+# --- assistant ---------------------------------------------------------------
+
+
+class ChatCitation(BaseModel):
+    section: str
+    page: Optional[int] = None
+
+
+class ChatAnswer(BaseModel):
+    answer: str
+    citations: list[ChatCitation] = Field(default_factory=list)
+
+
+class ChatRequest(BaseModel):
+    question: str
+
+
+# --- scoring -----------------------------------------------------------------
 
 FACTOR_WEIGHTS: dict[str, float] = {
     "technical_capability": 0.20,
@@ -110,11 +195,46 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "time_to_respond": 0.10,
 }
 
+FACTOR_LABELS: dict[str, str] = {
+    "technical_capability": "Technical capability",
+    "mission_alignment": "Mission alignment",
+    "past_performance": "Past performance",
+    "contract_vehicle_access": "Contract vehicle access",
+    "set_aside_eligibility": "Set-aside eligibility",
+    "incumbent_advantage_inverse": "Incumbent advantage (inverse)",
+    "pricing_size_fit": "Pricing / size fit",
+    "time_to_respond": "Time to respond",
+}
 
-def compatibility_score(factors: list[CompatibilityFactor]) -> float:
+TIME_BUCKET_LABELS: dict[str, str] = {
+    "immediate": "Immediate",
+    "30_days": "Within 30 days",
+    "at_award": "At award",
+    "quarterly": "Quarterly / monthly",
+    "ongoing": "Ongoing",
+    "unclear": "Timing unclear",
+}
+
+
+def compatibility_score(factors: list[FitFactor]) -> float:
+    """Weighted 1–5 factor scores → a 0–100 compatibility score.
+
+    A straight weighted mean lands in [1,5]; (x-1)/4 rescales that to [0,1].
+    Derived on the backend — the model is never asked to compute it.
+    """
     weighted = sum(f.weight * f.score for f in factors)
     return round((weighted - 1) / 4 * 100, 1)
 
 
-def verdict_for(score: float) -> Verdict:
+def band_for(score: float) -> FitBand:
+    """SCHEMA_v2: ≥70 pursue · 50–69 conditional · <50 no_bid."""
     return "pursue" if score >= 70 else "conditional" if score >= 50 else "no_bid"
+
+
+def verdict_for(score: float) -> str:
+    """The human-readable one-liner that rides alongside `band`."""
+    if score >= 70:
+        return "Strong fit — recommend pursue"
+    if score >= 50:
+        return "Conditional fit — pursue only if gaps can be closed"
+    return "Weak fit — recommend no-bid"
