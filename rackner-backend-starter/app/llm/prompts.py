@@ -2,7 +2,7 @@
 
 These are the exact instructions Kaliza's `extract` / `analyze` send to Claude.
 They are versioned here so prompt changes are reviewable in git. The output
-contract is JSON matching /SCHEMA.md; the gateway parses and validates it.
+contract is JSON matching /SCHEMA_v2.md; the gateway parses and validates it.
 
 Kaliza owns the *content* of these prompts (few-shot examples, wording, factor
 rubric). Aggrey owns the *plumbing* (how they're sent and parsed). Editing a
@@ -10,9 +10,11 @@ prompt never requires touching gateway.py.
 """
 
 # The obligation JSON keys the model must return (mirrors schemas.Obligation).
+# `id`, `citation` and `verified` are deliberately NOT requested — the gateway
+# assigns the id, builds the citation from the section it fed the model, and
+# computes `verified` itself. See SCHEMA_v2.md.
 OBLIGATION_KEYS = (
-    "plain_english_text, obligation_type, trigger_or_deadline, responsible_party, "
-    "time_bucket, verbatim_quote, source_page, source_ref, confidence"
+    "text, obligation_type, time_bucket, deadline_label, verbatim_quote"
 )
 
 EXTRACT_SYSTEM = f"""You extract contractual obligations from U.S. federal solicitations.
@@ -20,18 +22,21 @@ Return ONLY a JSON array (no prose, no markdown fences). Each element has exactl
 these keys: {OBLIGATION_KEYS}.
 
 Rules:
-- obligation_type is one of: report, deliverable, certification, flow-down, cyber, legal, financial.
-- time_bucket is one of: immediate, 30_days, quarterly, ongoing, unclear.
-- verbatim_quote MUST be copied character-for-character from the source text — do
-  not paraphrase it. If you cannot quote it exactly, omit the obligation.
-- confidence is a float 0.0-1.0.
-- Do NOT set a "verified" field; the backend computes that.
+- text is a plain-English statement of what the contractor must do.
+- obligation_type is a short lowercase label, e.g. submission, performance,
+  certification, reporting, cyber, legal, financial.
+- time_bucket is one of: immediate, 30_days, at_award, quarterly, ongoing, unclear.
+- deadline_label is a short display string, e.g. "Immediate · 21 days".
+- verbatim_quote MUST be copied character-for-character from the source text —
+  same capitalization, punctuation and internal line breaks. Do not paraphrase,
+  re-wrap, or tidy it. If you cannot quote it exactly, omit the obligation.
+- Do NOT set "id", "citation" or "verified"; the backend computes those.
 Return [] if the text contains no obligations."""
 
 ANALYZE_SYSTEM = """You score a U.S. federal opportunity against a company's lifecycle profile.
 Return ONLY a JSON object (no prose, no markdown fences) with these keys:
-summary (1-2 sentences), factors (array). Each factor has: name, weight (0-1),
-score (1-5), rationale (required, cite the why).
+verdict (a one-sentence plain-English take), factors (array). Each factor has:
+key, label, weight (0-1), score (1-5), rationale (required, cite the why).
 
 Use exactly these eight factors with these weights (they sum to 1.0):
 technical_capability 0.20, mission_alignment 0.15, past_performance 0.15,
@@ -53,8 +58,11 @@ evidence in the rationale. Never invent facts, competitors, prices, or
 relationships. If a factor has no supporting evidence, score it conservatively
 (2-3) and say so in the rationale.
 
-Do NOT compute compatibility_score or verdict — the backend derives those from
-the weighted factors."""
+Use the factor name as BOTH `key` (snake_case, exactly as listed above) and
+`label` (human-readable, e.g. "Technical capability").
+
+Do NOT compute `score` or `band` — the backend derives those from the weighted
+factors."""
 
 
 def extract_user_prompt(chunk_text: str) -> str:

@@ -1,35 +1,45 @@
 """The LLM gateway — the single seam between the backend and the model.
 
-Two public functions match SCHEMA.md's handoff contract:
+Two public functions:
 
-    extract_obligations(chunk_text, *, source_text=None) -> list[Obligation dict]
-    analyze(opportunity, lifecycle_profile, *, source_text=None) -> Analysis dict
+    extract_obligations(sections)                      -> list[Obligation dict]
+    analyze(opportunity, lifecycle_profile, sections)  -> Analysis dict
 
 Both route to Bedrock (LLM_MODE=bedrock) or the mock (default) and then run the
-shared assembly: normalize obligations to the schema, apply the no-hallucination
-verify check, and — for analyze — derive compatibility_score and verdict on the
-backend (never trusting the model to compute them). Swapping mock↔Bedrock, or
-editing a prompt, never changes this file's callers.
+shared assembly: normalize to SCHEMA_v2, attach a citation naming the section
+the quote came from, apply the no-hallucination check, and — for analyze —
+derive `score`, `band` and `verdict` on the backend. The model is never trusted
+to compute the score or to declare its own quote verified.
+
+Extraction is done PER SECTION rather than over one concatenated blob. That is
+what makes `citation.section` truthful: an obligation's quote is verified
+against the exact section its citation names, so the UI's
+`section.text.indexOf(quote)` is guaranteed to succeed when verified=True.
 """
 
 import json
 
 from app import config
 from app.llm import mock, prompts
-from app.llm.verify import apply_verification
-from app.schemas import CompatibilityFactor, compatibility_score, verdict_for
+from app.llm.verify import verify_quote
+from app.schemas import FitFactor, band_for, compatibility_score, verdict_for
 
 # Schema defaults so a sparse model response still produces a valid Obligation.
 _OBLIGATION_DEFAULTS = {
-    "plain_english_text": "",
-    "obligation_type": "legal",
-    "trigger_or_deadline": None,
-    "responsible_party": None,
+    "text": "",
+    "obligation_type": "",
     "time_bucket": "unclear",
+    "deadline_label": "",
     "verbatim_quote": "",
-    "source_page": None,
-    "source_ref": None,
-    "confidence": 0.0,
+}
+
+_VALID_TIME_BUCKETS = {
+    "immediate",
+    "30_days",
+    "at_award",
+    "quarterly",
+    "ongoing",
+    "unclear",
 }
 
 
@@ -52,47 +62,89 @@ def _parse_json(text: str):
         return []
 
 
-def _normalize_obligation(raw: dict) -> dict:
+def _section_field(section, name: str, default=""):
+    """Sections may arrive as ORM rows or plain dicts."""
+    if isinstance(section, dict):
+        return section.get(name, default)
+    return getattr(section, name, default)
+
+
+def _normalize_obligation(raw: dict, *, ob_id: int, section) -> dict:
     ob = dict(_OBLIGATION_DEFAULTS)
     for k in _OBLIGATION_DEFAULTS:
-        if k in raw and raw[k] is not None:
+        if raw.get(k) is not None:
             ob[k] = raw[k]
-    ob["verified"] = False  # set for real by apply_verification()
+    if ob["time_bucket"] not in _VALID_TIME_BUCKETS:
+        ob["time_bucket"] = "unclear"
+
+    ref = _section_field(section, "ref", "") or ""
+    ob["id"] = ob_id
+    # Citation names THIS section — the one the quote was verified against.
+    # Refs are stored without the "§" prefix (SCHEMA_v2).
+    ob["citation"] = {
+        "section": ref.lstrip("§").strip(),
+        "page": _section_field(section, "page", None),
+    }
+    # Set by code against the exact served text, never by the model.
+    ob["verified"] = verify_quote(
+        ob["verbatim_quote"], _section_field(section, "text", "") or ""
+    )
     return ob
 
 
-def _score(factors: list[dict]) -> float:
-    try:
-        return compatibility_score([CompatibilityFactor(**f) for f in factors])
-    except Exception:
-        return 0.0
-
-
-def extract_obligations(chunk_text: str, *, source_text: str | None = None) -> list[dict]:
-    """Extract obligations from a chunk, then verify each quote against the
-    source (defaults to the chunk itself when no wider source is given)."""
+def _raw_obligations_for(section_text: str) -> list[dict]:
     if config.LLM_MODE == "bedrock":
         from app.llm import bedrock_client
 
         parsed = _parse_json(
             bedrock_client.invoke(
-                prompts.EXTRACT_SYSTEM, prompts.extract_user_prompt(chunk_text)
+                prompts.EXTRACT_SYSTEM, prompts.extract_user_prompt(section_text)
             )
         )
-        raw = parsed if isinstance(parsed, list) else parsed.get("obligations", [])
-    else:
-        raw = mock.extract(chunk_text)
-
-    obligations = [_normalize_obligation(o) for o in raw]
-    effective_source = source_text if source_text is not None else chunk_text
-    return apply_verification(obligations, effective_source)
+        if isinstance(parsed, list):
+            return parsed
+        return parsed.get("obligations", []) if isinstance(parsed, dict) else []
+    return mock.extract(section_text)
 
 
-def analyze(
-    opportunity: dict, lifecycle_profile: dict, *, source_text: str | None = None
-) -> dict:
-    """Produce a full Analysis: model gives summary + factors, obligations come
-    from extract (grounded + verified), and the backend derives score + verdict."""
+def extract_obligations(sections: list) -> list[dict]:
+    """Extract obligations from each section, cited and verified against it.
+
+    Unverified quotes are kept with verified=False — never dropped.
+    """
+    obligations: list[dict] = []
+    next_id = 1
+    for section in sections or []:
+        text = _section_field(section, "text", "") or ""
+        if not text.strip():
+            continue
+        for raw in _raw_obligations_for(text):
+            obligations.append(
+                _normalize_obligation(raw, ob_id=next_id, section=section)
+            )
+            next_id += 1
+    return obligations
+
+
+def _normalize_factor(raw: dict) -> dict | None:
+    """Coerce a model factor into a FitFactor, or drop it if unusable."""
+    try:
+        return FitFactor(**raw).model_dump()
+    except Exception:
+        return None
+
+
+def _score(factors: list[dict]) -> float:
+    valid = [FitFactor(**f) for f in factors if _normalize_factor(f) is not None]
+    return compatibility_score(valid) if valid else 0.0
+
+
+def analyze(opportunity: dict, lifecycle_profile: dict, sections: list) -> dict:
+    """Produce a full SCHEMA_v2 Analysis.
+
+    The model supplies the factor scores and rationales; obligations come from
+    the grounded per-section extraction; the backend derives score/band/verdict.
+    """
     if config.LLM_MODE == "bedrock":
         from app.llm import bedrock_client
 
@@ -103,24 +155,23 @@ def analyze(
             )
         )
         parsed = parsed if isinstance(parsed, dict) else {}
-        summary = parsed.get("summary", "")
-        factors = parsed.get("factors", [])
+        raw_factors = parsed.get("factors", [])
+        verdict_note = parsed.get("verdict", "") or parsed.get("summary", "")
     else:
         result = mock.analyze_factors(opportunity, lifecycle_profile)
-        summary, factors = result["summary"], result["factors"]
+        raw_factors = result["factors"]
+        verdict_note = result["verdict_note"]
 
-    grounding = source_text if source_text is not None else opportunity.get("description", "")
-    obligations = extract_obligations(grounding or "", source_text=grounding)
-
+    factors = [f for f in (_normalize_factor(r) for r in raw_factors) if f]
+    obligations = extract_obligations(sections)
     score = _score(factors)
+
     return {
         "opportunity_id": opportunity.get("id"),
-        "compatibility_score": score,
-        "verdict": verdict_for(score),
-        "summary": summary,
+        "score": score,
+        "band": band_for(score),
+        # `verdict` is prose in v2; prefer the model's line, else a derived one.
+        "verdict": verdict_note or verdict_for(score),
         "factors": factors,
         "obligations": obligations,
-        "spend": None,  # filled by USAspending later
-        "contact": None,  # filled by contact discovery later
-        "generated_at": None,  # stamped when persisted
     }

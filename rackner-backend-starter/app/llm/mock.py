@@ -1,75 +1,109 @@
 """Deterministic, no-AWS stand-in for the LLM (LLM_MODE=mock, the default).
 
-Everything it returns is schema-valid and clearly marked `[MOCK]` with low
-confidence, so the whole app — upload → analyze → render → verify — runs end to
-end with no Anthropic/AWS credentials and no cost. Flip LLM_MODE=bedrock to swap
-in real Claude; nothing else changes.
+Everything it returns is SCHEMA_v2-valid and clearly marked `[MOCK]`, so the
+whole app — upload → analyze → render → verify — runs end to end with no AWS
+credentials and no cost. Flip LLM_MODE=bedrock to swap in real Claude; nothing
+else changes.
 
-For obligations, the mock pulls its `verbatim_quote` straight from the input
-text, so the backend's no-hallucination check passes and the "verified" path is
-exercised in demos.
+GROUNDING INVARIANT: every `verbatim_quote` this module emits is produced by
+slicing the input string by index (`text[a:b]`) and is therefore an exact
+substring of it. Nothing is lower-cased, whitespace-collapsed, or newline-
+stripped on the way out. That is what lets the UI's `text.indexOf(quote)`
+highlight succeed for every verified quote.
 """
 
-from app.schemas import FACTOR_WEIGHTS
+import re
+
+from app.schemas import FACTOR_LABELS, FACTOR_WEIGHTS
+
+# A "sentence" is a run of characters between sentence terminators. Matching on
+# the ORIGINAL string (no normalization) keeps every span index meaningful.
+_SENTENCE_RE = re.compile(r"[^.\n]+")
+
+_MAX_QUOTE = 300
 
 
-def _first_sentence_with(text: str, keywords: tuple[str, ...]) -> str:
-    for sentence in (text or "").replace("\n", " ").split("."):
-        low = sentence.lower()
-        if any(k in low for k in keywords):
-            return sentence.strip()
+def _sentence_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) of each sentence-ish run, trimmed of surrounding whitespace
+    but still expressed as indices INTO THE ORIGINAL STRING."""
+    spans: list[tuple[int, int]] = []
+    for m in _SENTENCE_RE.finditer(text or ""):
+        start, end = m.start(), m.end()
+        while start < end and text[start].isspace():
+            start += 1
+        while end > start and text[end - 1].isspace():
+            end -= 1
+        if end > start:
+            spans.append((start, end))
+    return spans
+
+
+def _quote_with(text: str, keywords: tuple[str, ...]) -> str:
+    """First sentence containing any keyword, sliced verbatim from `text`."""
+    for start, end in _sentence_spans(text):
+        if any(k in text[start:end].lower() for k in keywords):
+            return text[start : min(end, start + _MAX_QUOTE)]
     return ""
 
 
-def extract(chunk_text: str) -> list[dict]:
-    """Keyword-driven obligation extraction. Returns obligation dicts WITHOUT
-    the `verified` field (the gateway/verify layer sets that)."""
-    text = chunk_text or ""
+def _first_quote(text: str) -> str:
+    spans = _sentence_spans(text)
+    if not spans:
+        return ""
+    start, end = spans[0]
+    return text[start : min(end, start + _MAX_QUOTE)]
+
+
+def extract(section_text: str) -> list[dict]:
+    """Keyword-driven obligation extraction for ONE source section.
+
+    Returns partial obligation dicts — no `id`, `citation`, or `verified`; the
+    gateway assembles those so the citation always names the section the quote
+    was actually taken from.
+    """
+    text = section_text or ""
     low = text.lower()
     out: list[dict] = []
 
     if "shall" in low or "must" in low:
-        sentence = _first_sentence_with(text, ("shall", "must")) or text[:200]
-        is_cyber = any(k in low for k in ("cyber", "incident", "72 hours", "cui", "nist"))
-        out.append(
-            {
-                "plain_english_text": f"[MOCK] The contractor is required to: {sentence[:180]}",
-                "obligation_type": "cyber" if is_cyber else "report",
-                "trigger_or_deadline": "within 72 hours" if "72" in low else None,
-                "responsible_party": "Contractor",
-                "time_bucket": "immediate" if "72" in low else "ongoing",
-                "verbatim_quote": sentence[:300],
-                "source_page": 1,
-                "source_ref": None,
-                "confidence": 0.5,  # clearly-marked low confidence for mock output
-            }
-        )
+        quote = _quote_with(text, ("shall", "must")) or _first_quote(text)
+        if quote:
+            urgent = "72 hour" in low or "72 hours" in low
+            out.append(
+                {
+                    "text": f"[MOCK] The contractor is required to: {quote[:180]}",
+                    "obligation_type": "cyber"
+                    if any(k in low for k in ("cyber", "incident", "cui", "nist"))
+                    else "performance",
+                    "time_bucket": "immediate" if urgent else "ongoing",
+                    "deadline_label": "Immediate · 72 hours" if urgent else "Ongoing",
+                    "verbatim_quote": quote,
+                }
+            )
 
     if "report" in low or "deliver" in low:
-        sentence = _first_sentence_with(text, ("report", "deliver")) or text[:160]
-        out.append(
-            {
-                "plain_english_text": f"[MOCK] Deliverable/reporting requirement: {sentence[:180]}",
-                "obligation_type": "deliverable",
-                "trigger_or_deadline": "monthly" if "month" in low else None,
-                "responsible_party": "Contractor",
-                "time_bucket": "30_days" if "month" in low else "ongoing",
-                "verbatim_quote": sentence[:300],
-                "source_page": 1,
-                "source_ref": None,
-                "confidence": 0.5,
-            }
-        )
+        quote = _quote_with(text, ("report", "deliver")) or _first_quote(text)
+        if quote:
+            monthly = "month" in low
+            out.append(
+                {
+                    "text": f"[MOCK] Deliverable/reporting requirement: {quote[:180]}",
+                    "obligation_type": "reporting",
+                    "time_bucket": "30_days" if monthly else "ongoing",
+                    "deadline_label": "Within 30 days" if monthly else "Ongoing",
+                    "verbatim_quote": quote,
+                }
+            )
     return out
 
 
 def analyze_factors(opportunity: dict, lifecycle_profile: dict) -> dict:
-    """Return {summary, factors} — the 8 canonical factors with plausible,
+    """Return {verdict_note, factors} — the 8 canonical factors with plausible,
     deterministic scores derived from simple profile/opportunity overlap."""
     naics = opportunity.get("naics") or ""
     profile_naics = set(lifecycle_profile.get("naics_codes") or [])
     set_aside = (opportunity.get("set_aside") or "").lower()
-    statuses = [s.lower() for s in (lifecycle_profile.get("set_aside_status") or [])]
+    statuses = [s.lower() for s in (lifecycle_profile.get("set_asides") or [])]
 
     scores = {
         "technical_capability": 4.0,
@@ -89,15 +123,19 @@ def analyze_factors(opportunity: dict, lifecycle_profile: dict) -> dict:
 
     factors = [
         {
-            "name": name,
-            "weight": FACTOR_WEIGHTS[name],
+            "key": key,
+            "label": FACTOR_LABELS[key],
+            "weight": FACTOR_WEIGHTS[key],
             "score": score,
-            "rationale": f"[MOCK] {name.replace('_', ' ')} derived from profile/opportunity overlap.",
+            "rationale": (
+                f"[MOCK] {FACTOR_LABELS[key]} derived from profile/opportunity overlap."
+            ),
+            "citation": None,
         }
-        for name, score in scores.items()
+        for key, score in scores.items()
     ]
-    summary = (
+    note = (
         "[MOCK] Deterministic stand-in analysis. Set LLM_MODE=bedrock (with AWS "
         "credentials + Claude Sonnet 4.5 model access) for real scoring."
     )
-    return {"summary": summary, "factors": factors}
+    return {"verdict_note": note, "factors": factors}
