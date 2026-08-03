@@ -10,8 +10,13 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/")
+@router.get("/health")
 def health() -> dict:
-    """Liveness check — no auth required."""
+    """Liveness check — no auth required.
+
+    Exposed at both `/` and `/health`: the ALB target group and the container
+    HEALTHCHECK both probe `/health`, while `/` is the friendlier manual check.
+    """
     return {
         "status": "ok",
         "service": "rackner-fdi-backend",

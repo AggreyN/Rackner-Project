@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- Environment: "dev" reads .env; "prod" reads AWS Secrets Manager ---
+APP_ENV = os.getenv("APP_ENV", "dev").lower()
+
 # --- Database ---
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql+psycopg://localhost:5432/rackner_fdi"
@@ -55,3 +58,13 @@ BEDROCK_MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 )
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+
+# --- External government data ---
+# SAM.gov Get Opportunities (data.gov key). Unset → those routes 503 cleanly.
+SAM_GOV_API_KEY = os.getenv("SAM_GOV_API_KEY", "")
+
+# --- File storage: "local" filesystem or "s3" ---
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").lower()
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "data/uploads")
+S3_BUCKET = os.getenv("S3_BUCKET", "")
+KMS_KEY_ID = os.getenv("KMS_KEY_ID", "")

@@ -24,10 +24,13 @@ python-dotenv>=1.0          # load .env in development
 
 # --- HTTP (Cognito JWKS fetch; SAM.gov / USAspending later) ---
 requests>=2.31
+tenacity>=8.2               # timeouts + retries on external gov APIs
 
-# --- Ingestion: PDF → text + word bounding boxes ---
-# Backs the citation guarantee in SCHEMA.md: source_page and the character/bbox
-# spans behind each obligation's verbatim_quote.
+# --- Ingestion: PDF → text ---
+# pypdf backs services/ingest.py (solicitation → SourceDocument sections).
+pypdf>=4.2
+# Backs the citation guarantee in SCHEMA_v2.md: page numbers and the char/bbox
+# spans behind each obligation's verbatim_quote (app/ingestion/).
 PyMuPDF>=1.24               # imported as "fitz" — page text + word bounding boxes
 pdfplumber>=0.11            # tables + character-level coordinates, when needed
 
