@@ -1,7 +1,8 @@
 """Environment-driven settings for the Rackner FDI backend.
 
-One place to read configuration. Secrets come from the environment (a local
-`.env` file in dev, real env vars in AWS) — never hard-coded. See `.env.example`.
+One place to read configuration. Secret-bearing values go through
+services/secrets.get_secret(): the environment in dev, AWS Secrets Manager in
+prod (APP_ENV=prod). Never hard-coded. See `.env.example`.
 """
 
 import os
@@ -10,11 +11,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from app.services.secrets import get_secret  # noqa: E402  (needs dotenv first)
+
 # --- Environment: "dev" reads .env; "prod" reads AWS Secrets Manager ---
 APP_ENV = os.getenv("APP_ENV", "dev").lower()
 
 # --- Database ---
-DATABASE_URL = os.getenv(
+DATABASE_URL = get_secret(
     "DATABASE_URL", "postgresql+psycopg://localhost:5432/rackner_fdi"
 )
 
@@ -23,14 +26,14 @@ DATABASE_URL = os.getenv(
 AUTH_MODE = os.getenv("AUTH_MODE", "local").lower()
 
 # --- Local-mode JWT (only used when AUTH_MODE=local) ---
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me-in-production")
+JWT_SECRET = get_secret("JWT_SECRET", "dev-secret-change-me-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_MINUTES = int(os.getenv("JWT_EXPIRY_MINUTES", "720"))  # 12h, short-lived
 
 # --- Amazon Cognito (only used when AUTH_MODE=cognito) ---
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "")
-COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID", "")  # JWT audience
+COGNITO_USER_POOL_ID = get_secret("COGNITO_USER_POOL_ID", "")
+COGNITO_APP_CLIENT_ID = get_secret("COGNITO_APP_CLIENT_ID", "")  # JWT audience
 
 # Derived Cognito endpoints (issuer + JWKS) — empty until a pool is configured.
 COGNITO_ISSUER = (
@@ -61,7 +64,7 @@ LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
 # --- External government data ---
 # SAM.gov Get Opportunities (data.gov key). Unset → those routes 503 cleanly.
-SAM_GOV_API_KEY = os.getenv("SAM_GOV_API_KEY", "")
+SAM_GOV_API_KEY = get_secret("SAM_GOV_API_KEY", "")
 
 # --- File storage: "local" filesystem or "s3" ---
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").lower()

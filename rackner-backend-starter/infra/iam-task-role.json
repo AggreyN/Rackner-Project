@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "Least-privilege ECS TASK role for the Rackner FDI backend (what the app",
+    "itself may do — distinct from the execution role that pulls the image and",
+    "injects secrets). Replace ACCOUNT_ID / region / bucket before applying.",
+    "GovCloud: partition becomes aws-us-gov and region us-gov-west-1."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InvokeClaudeOnBedrock",
+      "Effect": "Allow",
+      "Action": ["bedrock:InvokeModel", "bedrock:Converse", "bedrock:ConverseStream"],
+      "Resource": [
+        "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "arn:aws:bedrock:*:ACCOUNT_ID:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+      ]
+    },
+    {
+      "Sid": "ReadAppSecrets",
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue"],
+      "Resource": "arn:aws:secretsmanager:us-east-2:ACCOUNT_ID:secret:rackner-fdi/*"
+    },
+    {
+      "Sid": "LifecyclePlanObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::RACKNER_FDI_BUCKET/lifecycle/*"
+    },
+    {
+      "Sid": "KmsForS3AndSecrets",
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt", "kms:GenerateDataKey"],
+      "Resource": "arn:aws:kms:us-east-2:ACCOUNT_ID:key/KMS_KEY_ID"
+    },
+    {
+      "Sid": "ShipLogs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:us-east-2:ACCOUNT_ID:log-group:/ecs/rackner-fdi-backend:*"
+    }
+  ]
+}

@@ -12,6 +12,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import config
+from app.logging_config import AccessLogMiddleware, setup as setup_logging
+
+setup_logging()
 from app.routes import (
     analysis,
     auth,
@@ -40,6 +43,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Outermost: every request gets an id + one JSON access line (CloudWatch-ready).
+app.add_middleware(AccessLogMiddleware)
 
 app.include_router(health.router)
 app.include_router(auth.router)

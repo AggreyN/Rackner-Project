@@ -1,0 +1,19 @@
+# SECURITY: local secrets must never enter an image layer. Prod gets secrets
+# from the ECS task definition / Secrets Manager.
+.env
+.env.*
+
+# Never useful in the image
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+data/
+docs/
+.git/
+.gitignore
+.vscode/
+.claude/
+*.db
+*.md

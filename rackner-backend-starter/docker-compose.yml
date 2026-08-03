@@ -1,0 +1,51 @@
+# Local stack: the API + Postgres, zero AWS.
+#
+#   docker compose up --build
+#   open http://localhost:8000/docs
+#
+# Week-4 acceptance shape: the same image ECS runs, pointed at a local Postgres,
+# with every AWS-backed feature on its local stand-in (mock LLM, local auth,
+# filesystem storage, env secrets). Setting the prod env vars swaps in
+# Cognito/Bedrock/RDS/S3/Secrets without touching this file's build.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rackner
+      POSTGRES_PASSWORD: rackner-local-only   # local compose only; RDS creds live in Secrets Manager
+      POSTGRES_DB: rackner_fdi
+    ports:
+      - "5433:5432"        # 5433 so a host Postgres on 5432 doesn't collide
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rackner -d rackner_fdi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: dev
+      DATABASE_URL: postgresql+psycopg://rackner:rackner-local-only@db:5432/rackner_fdi
+      AUTH_MODE: local
+      LLM_MODE: mock
+      STORAGE_BACKEND: local
+      UPLOAD_DIR: /srv/data/uploads
+      JWT_SECRET: local-compose-only-not-for-prod
+      ALLOWED_ORIGINS: http://localhost:3000
+      # SAM_GOV_API_KEY deliberately unset: those routes 503 cleanly, proving
+      # the stack runs with zero external credentials.
+    depends_on:
+      db:
+        condition: service_healthy
+    # Migrate, then serve. Running alembic here (not in the Dockerfile) means
+    # the schema converges every boot, including after a fresh volume.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  pgdata:

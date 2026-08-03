@@ -79,19 +79,38 @@ def _user_from_local_token(token: str, db: Session) -> User:
 _jwks_cache: dict = {"keys": None, "fetched_at": 0.0}
 
 
-def _get_jwks() -> list[dict]:
+def _get_jwks(*, force_refresh: bool = False) -> list[dict]:
     """Fetch and cache (1h) the Cognito User Pool's public signing keys."""
     if not config.COGNITO_JWKS_URL:
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "AUTH_MODE=cognito but COGNITO_USER_POOL_ID is not configured.",
         )
-    if _jwks_cache["keys"] is None or (time.monotonic() - _jwks_cache["fetched_at"]) > 3600:
+    stale = (
+        _jwks_cache["keys"] is None
+        or (time.monotonic() - _jwks_cache["fetched_at"]) > 3600
+    )
+    if force_refresh or stale:
         resp = requests.get(config.COGNITO_JWKS_URL, timeout=5)
         resp.raise_for_status()
         _jwks_cache["keys"] = resp.json()["keys"]
         _jwks_cache["fetched_at"] = time.monotonic()
     return _jwks_cache["keys"]
+
+
+def _key_for(kid: str | None) -> dict | None:
+    """The JWKS key matching this token's kid.
+
+    An unknown kid usually means Cognito rotated its signing keys more recently
+    than our cache — refetch once before rejecting, or every request 401s for
+    up to an hour after a rotation.
+    """
+    key = next((k for k in _get_jwks() if k.get("kid") == kid), None)
+    if key is None:
+        key = next(
+            (k for k in _get_jwks(force_refresh=True) if k.get("kid") == kid), None
+        )
+    return key
 
 
 def _verify_cognito_token(token: str) -> dict:
@@ -101,7 +120,7 @@ def _verify_cognito_token(token: str) -> dict:
     except JWTError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Malformed token header.")
 
-    key = next((k for k in _get_jwks() if k.get("kid") == header.get("kid")), None)
+    key = _key_for(header.get("kid"))
     if key is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Signing key not found in JWKS.")
 

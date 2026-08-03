@@ -15,6 +15,7 @@ See docs/LLM_GATEWAY.md.
 """
 
 import json
+import logging
 
 from app import config
 
@@ -48,6 +49,19 @@ def invoke(system: str, user_prompt: str, max_tokens: int | None = None) -> str:
         contentType="application/json",
     )
     payload = json.loads(response["body"].read())
+
+    # Token usage goes to the structured logs (cost visibility in CloudWatch).
+    # Counts only — never prompt or completion text, which is document content.
+    usage = payload.get("usage") or {}
+    logging.getLogger("llm").info(
+        "bedrock_invoke",
+        extra={
+            "model_id": config.BEDROCK_MODEL_ID,
+            "input_tokens": usage.get("input_tokens"),
+            "output_tokens": usage.get("output_tokens"),
+        },
+    )
+
     # Anthropic Messages response: `content` is a list of blocks.
     return "".join(
         block.get("text", "")
