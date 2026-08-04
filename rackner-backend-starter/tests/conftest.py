@@ -48,6 +48,9 @@ DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_TMP / 'test.
 os.environ["DATABASE_URL"] = DATABASE_URL
 os.environ["LLM_MODE"] = "mock"
 os.environ["AUTH_MODE"] = "local"
+# Never let a dev .env leak real Textract calls (money, latency) into the
+# offline suite — the live path has its own opt-in file (test_textract_live).
+os.environ["OCR_MODE"] = "off"
 os.environ["STORAGE_BACKEND"] = "local"
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 os.environ.setdefault("JWT_SECRET", "test-only-secret-not-a-real-key")

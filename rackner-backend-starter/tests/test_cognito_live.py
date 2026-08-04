@@ -120,6 +120,37 @@ def test_user_row_was_upserted_by_sub(client, cognito_client, id_token):
     assert rows[0].password_hash is None, "Cognito users must never grow a local password"
 
 
+def test_login_proxy_issues_a_working_token(client, cognito_client):
+    """The frontend's actual path: POST /auth/login with email/password must
+    return a pool-issued ID token that then passes current_user validation."""
+    from jose import jwt as jose_jwt
+
+    r = client.post(
+        "/auth/login",
+        json={
+            "email": os.getenv("TEST_COGNITO_EMAIL"),
+            "password": os.getenv("TEST_COGNITO_PASSWORD"),
+        },
+    )
+    assert r.status_code == 200, r.text
+    token = r.json()["access_token"]
+    assert jose_jwt.get_unverified_claims(token).get("token_use") == "id", (
+        "the proxy must hand back the ID token — the access token has no aud "
+        "and would 401 on every protected route"
+    )
+    me = client.get("/me", headers={"Authorization": f"Bearer {token}"})
+    assert me.status_code == 200, me.text
+
+
+def test_login_proxy_rejects_a_wrong_password(client, cognito_client):
+    r = client.post(
+        "/auth/login",
+        json={"email": os.getenv("TEST_COGNITO_EMAIL"), "password": "Wrong-password-999!"},
+    )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Invalid email or password."
+
+
 def test_access_token_is_rejected_with_helpful_distinction(cognito_client, client, id_token):
     """Guard the Remy footgun: the ACCESS token (no `aud` claim) must 401.
 
