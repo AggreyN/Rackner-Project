@@ -128,6 +128,24 @@ def test_real_analyze_returns_the_eight_factors(bedrock_mode, sections):
     assert a["verdict"] not in ("pursue", "conditional", "no_bid")
 
 
+def test_real_chat_citations_are_grounded(bedrock_mode, sections):
+    """Live model, enriched ChatCitation: every verified quote must be an
+    exact substring of the section its citation names. No rate asserted —
+    the invariant is what must hold, drift comes back verified=False."""
+    from app.llm import gateway
+
+    result = gateway.answer_question(
+        "What are the cyber incident reporting requirements?", sections
+    )
+    assert result["answer"], "the real model returned no answer"
+    by_ref = {s["ref"]: s["text"] for s in sections}
+    for citation in result["citations"]:
+        assert set(citation) == {"section", "page", "verbatim_quote", "verified"}
+        assert citation["section"] in by_ref
+        if citation["verified"]:
+            assert citation["verbatim_quote"] in by_ref[citation["section"]]
+
+
 def test_real_model_cannot_self_certify_verification(bedrock_mode, sections):
     """Even if the model emits verified=true, the backend must overwrite it."""
     from app.llm import gateway

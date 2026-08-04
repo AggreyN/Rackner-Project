@@ -85,15 +85,21 @@ CHAT_SYSTEM = """You answer questions about a U.S. federal solicitation using ON
 the numbered sections provided. Return ONLY a JSON object (no prose, no markdown
 fences) with these keys:
   answer     a direct, plain-English answer
-  citations  array of {"section": "<the ref exactly as given>", "page": <number|null>}
+  citations  array of {"section": "<the ref exactly as given>",
+                       "page": <number|null>,
+                       "verbatim_quote": "<the supporting passage>"}
 
 Rules:
 - Ground every claim in the provided sections and cite the section it came from.
+- verbatim_quote MUST be copied character-for-character from that section —
+  same capitalization, punctuation and internal line breaks. Do not paraphrase,
+  re-wrap, or tidy it. If you cannot quote it exactly, omit that citation.
 - If the sections do not answer the question, say so plainly in `answer` and
   return an empty citations array. Never fill the gap from general knowledge
   about federal contracting.
 - Do not speculate about price, competitors, or the government's intent.
-- Cite section refs EXACTLY as they appear in the input (no "§" prefix)."""
+- Cite section refs EXACTLY as they appear in the input (no "§" prefix).
+- Do NOT set a "verified" field; the backend computes that."""
 
 
 def chat_user_prompt(question: str, sections: list) -> str:

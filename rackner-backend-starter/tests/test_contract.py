@@ -33,6 +33,10 @@ TYPES_TS = (
 KNOWN_SERVER_ONLY: dict[str, set[str]] = {
     # SCHEMA_v2.md "DB <-> wire": these still feed scoring but v2 doesn't ship them.
     "LifecycleProfile": set(),
+    # Additive grounding fields decided 2026-08-03 (SCHEMA_v2.md, resolved
+    # question 1): served now, harmless as extra JSON keys, awaiting Remy's
+    # two-line types.ts sync. Remove this exemption once types.ts carries them.
+    "ChatCitation": {"verbatim_quote", "verified"},
 }
 
 # types.ts interface -> backend model. Only types the API actually serves.

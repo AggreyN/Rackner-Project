@@ -233,6 +233,22 @@ def answer_question(question: str, sections: list) -> dict:
             page = int(page) if page is not None else None
         except (TypeError, ValueError):
             page = None
-        citations.append({"section": ref, "page": page})
+
+        # Ground the citation exactly like an obligation: repair whitespace
+        # drift against the section it names, then verify by exact substring.
+        # The model's own "verified" claim (if any) is ignored.
+        section_text = _section_field(by_ref[ref], "text", "") or ""
+        quote = str(citation.get("verbatim_quote", "") or "")
+        repaired = realign_quote(quote, section_text)
+        if repaired is not None:
+            quote = repaired
+        citations.append(
+            {
+                "section": ref,
+                "page": page,
+                "verbatim_quote": quote,
+                "verified": verify_quote(quote, section_text),
+            }
+        )
 
     return {"answer": answer, "citations": citations}

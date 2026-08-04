@@ -179,8 +179,18 @@ def answer_question(question: str, sections: list) -> dict:
 
     scored.sort(key=lambda s: s[0], reverse=True)
     top = scored[:3]
+    # The ANSWER is prose — normalizing it is fine. Each citation's
+    # verbatim_quote is NOT prose: it is sliced by index from the section text
+    # so the exact-substring check (and the UI's indexOf) holds, same
+    # invariant as extract().
     excerpt = " ".join((top[0][3] or "").split())[:240]
+    citations = []
+    for _, ref, page, text in top:
+        quote = _quote_with(text, tuple(words)) or _first_quote(text)
+        citations.append(
+            {"section": ref, "page": page, "verbatim_quote": quote}
+        )
     return {
         "answer": f"[MOCK] Based on section {top[0][1]}: {excerpt}",
-        "citations": [{"section": ref, "page": page} for _, ref, page, _ in top],
+        "citations": citations,
     }

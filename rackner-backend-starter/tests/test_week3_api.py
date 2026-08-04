@@ -284,20 +284,30 @@ def test_chat_shape_and_grounding(client, auth_headers, stub_upstreams):
     assert r.status_code == 200, r.text
     body = r.json()
     assert set(body) == {"answer", "citations"}
-    assert all(set(c) == {"section", "page"} for c in body["citations"])
+    # Enriched ChatCitation (SCHEMA_v2 resolved question 1): grounding fields
+    # ride along with section/page.
+    assert all(
+        set(c) == {"section", "page", "verbatim_quote", "verified"}
+        for c in body["citations"]
+    )
 
 
 def test_chat_citations_reference_real_sections(client, auth_headers, stub_upstreams):
     client.get("/opportunities/search?q=x", headers=auth_headers)
     doc = client.get("/opportunities/SAM-1/document", headers=auth_headers).json()
-    refs = {s["ref"] for s in doc["sections"]}
+    by_ref = {s["ref"]: s["text"] for s in doc["sections"]}
     body = client.post(
         "/opportunities/SAM-1/chat",
         headers=auth_headers,
         json={"question": "What continuous monitoring is required?"},
     ).json()
+    assert body["citations"], "expected at least one citation from the mock"
     for citation in body["citations"]:
-        assert citation["section"] in refs
+        assert citation["section"] in by_ref
+        # The highlight contract, across the wire: every VERIFIED chat quote is
+        # findable by indexOf in the section /document serves under that ref.
+        if citation["verified"]:
+            assert citation["verbatim_quote"] in by_ref[citation["section"]]
 
 
 def test_chat_admits_when_the_source_does_not_answer(client, auth_headers, stub_upstreams):
@@ -336,3 +346,37 @@ def test_gateway_drops_citations_to_sections_that_do_not_exist(monkeypatch):
     result = gateway.answer_question("q", [{"ref": "C.1", "page": 1, "text": "text"}])
     assert result["citations"] == []
     assert result["answer"] == "x", "the answer text is kept even when a citation is dropped"
+
+
+def test_chat_citation_quotes_are_grounded_like_obligations(monkeypatch):
+    """The new ChatCitation contract: verified == exact substring of the CITED
+    section, model drift repaired, model lies overwritten."""
+    from app import config
+    from app.llm import gateway, mock
+
+    monkeypatch.setattr(config, "LLM_MODE", "mock")
+    section_text = "C.1 Reporting\nThe Contractor shall report any cyber incident\nwithin 72 hours."
+    sections = [{"ref": "C.1", "page": 3, "text": section_text}]
+
+    monkeypatch.setattr(
+        mock,
+        "answer_question",
+        lambda q, s: {
+            "answer": "x",
+            "citations": [
+                # re-wrapped by the model -> must be repaired, then verified
+                {"section": "C.1", "verbatim_quote": "shall report any cyber incident within 72 hours"},
+                # hallucinated -> kept, verified=False
+                {"section": "C.1", "verbatim_quote": "shall deliver a submarine", "verified": True},
+            ],
+        },
+    )
+    result = gateway.answer_question("q", sections)
+    repaired, forged = result["citations"]
+
+    assert repaired["verified"] is True
+    assert repaired["verbatim_quote"] in section_text, "repair must restore the exact slice"
+    assert repaired["page"] == 3, "page falls back to the cited section's page"
+
+    assert forged["verified"] is False, "the model's own verified=True must be overwritten"
+    assert forged["verbatim_quote"] == "shall deliver a submarine", "unverified quotes are kept, not dropped"

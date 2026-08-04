@@ -169,8 +169,19 @@ class ContactResult(BaseModel):
 
 
 class ChatCitation(BaseModel):
+    """Chat citations carry the same grounding fields as obligations, so the
+    UI can highlight them through the identical indexOf path.
+
+    `verbatim_quote`/`verified` are an ADDITIVE extension over types.ts's
+    {section, page} — extra JSON keys are harmless to the current frontend, so
+    this ships backend-first; Remy syncs types.ts when he picks it up. The
+    backend computes `verified`, never the model (same rule as obligations).
+    """
+
     section: str
     page: Optional[int] = None
+    verbatim_quote: str = ""
+    verified: bool = False
 
 
 class ChatAnswer(BaseModel):
