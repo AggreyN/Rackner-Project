@@ -35,6 +35,13 @@
       "Resource": "arn:aws:kms:us-east-2:ACCOUNT_ID:key/KMS_KEY_ID"
     },
     {
+      "Sid": "OcrScannedSolicitations",
+      "Effect": "Allow",
+      "Action": ["textract:DetectDocumentText"],
+      "Resource": "*",
+      "_comment": "Textract has no resource-level scoping for this action. Sync API only — no S3 round-trip."
+    },
+    {
       "Sid": "ShipLogs",
       "Effect": "Allow",
       "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],

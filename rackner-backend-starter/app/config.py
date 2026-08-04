@@ -72,6 +72,13 @@ ANALYSIS_PREWARM = os.getenv("ANALYSIS_PREWARM", "true").lower() == "true"
 # SAM.gov Get Opportunities (data.gov key). Unset → those routes 503 cleanly.
 SAM_GOV_API_KEY = get_secret("SAM_GOV_API_KEY", "")
 
+# --- OCR for scanned/image-only PDFs: "off" (default) or "textract" ---
+# Two of the five committed sample solicitations are image-only and extract to
+# nothing without this. "textract" renders text-less pages locally (PyMuPDF)
+# and OCRs them with the SYNCHRONOUS DetectDocumentText API — no S3 bucket, no
+# async job polling. Needs AWS credentials with textract:DetectDocumentText.
+OCR_MODE = os.getenv("OCR_MODE", "off").lower()
+
 # --- File storage: "local" filesystem or "s3" ---
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").lower()
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "data/uploads")

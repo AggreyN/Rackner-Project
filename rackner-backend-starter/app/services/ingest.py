@@ -22,8 +22,13 @@ PDFs (pypdf). Scanned/image-only PDFs come back empty — see the Textract hook.
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
+
+from app import config
+
+log = logging.getLogger(__name__)
 
 # --- canonicalization --------------------------------------------------------
 # PDF extraction emits characters the model will not reproduce when asked to
@@ -173,26 +178,42 @@ def split_sections(raw: str) -> list[dict]:
 
 
 def pdf_to_text(data: bytes) -> str:
-    """Extract text from a digital PDF, one form feed between pages.
+    """Extract text from a PDF, one form feed between pages.
 
-    Returns "" for scanned/image-only PDFs (pypdf finds no text layer) rather
-    than raising — the caller falls back to other sources.
+    Digital pages come from pypdf. Pages with no text layer degrade to "" —
+    unless OCR_MODE=textract, in which case ONLY those pages are rendered
+    locally (PyMuPDF) and OCR'd via Amazon Textract's synchronous
+    DetectDocumentText. Hybrid on purpose: digital pages keep their byte-exact
+    pypdf text; OCR touches nothing it doesn't have to.
 
-    TODO(week4, optional): if a dry run hits a scanned solicitation, add an
-    Amazon Textract fallback here. Keep it behind a config flag and make it
-    return the same plain string, so nothing downstream changes.
+    OCR failures degrade to the pypdf result rather than raising — a Textract
+    outage must not take ingestion down with it.
     """
+    pages = _pypdf_page_texts(data)
+
+    if config.OCR_MODE == "textract":
+        pages = _ocr_textless_pages(data, pages)
+
+    if not pages:
+        return ""
+    # Canonicalized here, at the boundary — everything downstream (sectioning,
+    # storage, verification, GET /document) sees this one string.
+    return canonicalize(_PAGE_BREAK.join(pages))
+
+
+def _pypdf_page_texts(data: bytes) -> list[str]:
+    """Per-page text via pypdf. [] when the bytes aren't a readable PDF."""
     try:
         import io
 
         from pypdf import PdfReader
     except ImportError:  # pypdf not installed — degrade, don't crash
-        return ""
+        return []
 
     try:
         reader = PdfReader(io.BytesIO(data))
     except Exception:
-        return ""
+        return []
 
     pages: list[str] = []
     for page in reader.pages:
@@ -200,9 +221,100 @@ def pdf_to_text(data: bytes) -> str:
             pages.append(page.extract_text() or "")
         except Exception:
             pages.append("")
-    # Canonicalized here, at the boundary — everything downstream (sectioning,
-    # storage, verification, GET /document) sees this one string.
-    return canonicalize(_PAGE_BREAK.join(pages))
+    return pages
+
+
+# A page with fewer characters than this has no real text layer. (The scanned
+# samples measure 0 and 1 chars for whole documents; a genuine page of a
+# solicitation is thousands.)
+_OCR_MIN_CHARS = 20
+
+# Render scale for OCR: 72dpi * 2 = 144dpi — Textract's sweet spot without
+# blowing the sync API's 5MB-per-image limit on letter-size pages.
+_OCR_ZOOM = 2.0
+
+
+def _render_page_png(data: bytes, index: int) -> bytes | None:
+    """Rasterize one PDF page to PNG bytes with PyMuPDF. None on any failure."""
+    try:
+        import fitz  # PyMuPDF
+
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            page = doc[index]
+            pix = page.get_pixmap(matrix=fitz.Matrix(_OCR_ZOOM, _OCR_ZOOM))
+            return pix.tobytes("png")
+    except Exception:
+        log.warning("could not rasterize page %d for OCR", index, exc_info=True)
+        return None
+
+
+def _textract_lines(png: bytes) -> str | None:
+    """One synchronous DetectDocumentText call. None on any failure.
+
+    LINE blocks joined with newlines — WORD blocks would lose the layout the
+    section splitter keys on.
+    """
+    try:
+        import boto3
+
+        client = boto3.client("textract", region_name=config.AWS_REGION)
+        response = client.detect_document_text(Document={"Bytes": png})
+    except Exception:
+        log.warning("Textract OCR call failed", exc_info=True)
+        return None
+    return "\n".join(
+        block["Text"]
+        for block in response.get("Blocks", [])
+        if block.get("BlockType") == "LINE" and block.get("Text")
+    )
+
+
+def _page_count(data: bytes) -> int:
+    """Page count via PyMuPDF, for PDFs pypdf couldn't read at all."""
+    try:
+        import fitz
+
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            return doc.page_count
+    except Exception:
+        return 0
+
+
+def _ocr_textless_pages(data: bytes, pages: list[str]) -> list[str]:
+    """OCR exactly the pages that have no usable text layer.
+
+    Hybrid: a mixed document (digital pages + scanned exhibits) keeps its
+    byte-exact pypdf text everywhere pypdf worked. Every failure path returns
+    what we already had.
+    """
+    if not pages:
+        # pypdf couldn't even open it; PyMuPDF often still can.
+        count = _page_count(data)
+        if count == 0:
+            return pages
+        pages = [""] * count
+
+    needs_ocr = [i for i, text in enumerate(pages) if len(text.strip()) < _OCR_MIN_CHARS]
+    if not needs_ocr:
+        return pages
+
+    ocred = 0
+    for index in needs_ocr:
+        png = _render_page_png(data, index)
+        if png is None:
+            continue
+        text = _textract_lines(png)
+        if text:
+            pages[index] = text
+            ocred += 1
+
+    log.info(
+        "textract OCR: %d/%d text-less pages recovered",
+        ocred,
+        len(needs_ocr),
+        extra={"pages_ocred": ocred, "pages_needing_ocr": len(needs_ocr)},
+    )
+    return pages
 
 
 def load_text(data: bytes, filename: str = "") -> str:
