@@ -307,3 +307,46 @@ def test_name_parsing_strips_the_parenthetical_title():
 )
 def test_agency_domain_lookup(agency, expected):
     assert email_discovery.domain_for_agency(agency) == expected
+
+
+# --- bedrock cost guard --------------------------------------------------------
+
+
+def test_extraction_is_capped_in_bedrock_mode(monkeypatch):
+    """One model call per section: a 550-section document must not buy 550
+    Bedrock calls off a single detail-view click. Capped with a log line —
+    never silently."""
+    from app import config
+    from app.llm import gateway
+
+    monkeypatch.setattr(config, "LLM_MODE", "bedrock")
+    monkeypatch.setattr(config, "LLM_MAX_EXTRACT_SECTIONS", 5)
+    calls = {"n": 0}
+
+    def fake_raw(section_text):
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(gateway, "_raw_obligations_for", fake_raw)
+    sections = [{"ref": f"p{i}", "page": i, "text": f"section {i} text"} for i in range(50)]
+    gateway.extract_obligations(sections)
+    assert calls["n"] == 5, f"expected the cap to hold at 5 calls, got {calls['n']}"
+
+
+def test_extraction_is_uncapped_in_mock_mode(monkeypatch):
+    """The cap is a COST guard; free mock mode reads everything."""
+    from app import config
+    from app.llm import gateway
+
+    monkeypatch.setattr(config, "LLM_MODE", "mock")
+    monkeypatch.setattr(config, "LLM_MAX_EXTRACT_SECTIONS", 5)
+    calls = {"n": 0}
+
+    def fake_raw(section_text):
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(gateway, "_raw_obligations_for", fake_raw)
+    sections = [{"ref": f"p{i}", "page": i, "text": f"section {i} text"} for i in range(50)]
+    gateway.extract_obligations(sections)
+    assert calls["n"] == 50

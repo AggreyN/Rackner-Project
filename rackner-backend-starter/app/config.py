@@ -62,6 +62,12 @@ BEDROCK_MODEL_ID = os.getenv(
 )
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
+# Bedrock extraction runs one model call PER SECTION. A 638-page document
+# sections into ~550 — one stray click must not buy 550 model calls. Sections
+# beyond the cap are skipped WITH A LOG LINE (no silent truncation); raise the
+# cap deliberately for a deep-read run.
+LLM_MAX_EXTRACT_SECTIONS = int(os.getenv("LLM_MAX_EXTRACT_SECTIONS", "60"))
+
 # Pre-generate the analysis in the background when an opportunity detail is
 # opened, so GET /analysis is a cache hit instead of a 30s+ synchronous model
 # call (SCHEMA_v2 open question 3, option (a)). Costs one model call per

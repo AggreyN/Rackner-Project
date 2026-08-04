@@ -18,6 +18,7 @@ against the exact section its citation names, so the UI's
 """
 
 import json
+import logging
 
 from app import config
 from app.llm import mock, prompts
@@ -125,7 +126,17 @@ def extract_obligations(sections: list) -> list[dict]:
     """
     obligations: list[dict] = []
     next_id = 1
-    for section in sections or []:
+    sections = list(sections or [])
+    # Cost guard for bedrock mode: one model call per section. Never silent —
+    # the log says exactly what was skipped (ground rule: no silent caps).
+    if config.LLM_MODE == "bedrock" and len(sections) > config.LLM_MAX_EXTRACT_SECTIONS:
+        logging.getLogger(__name__).warning(
+            "extraction capped at %d of %d sections (LLM_MAX_EXTRACT_SECTIONS)",
+            config.LLM_MAX_EXTRACT_SECTIONS,
+            len(sections),
+        )
+        sections = sections[: config.LLM_MAX_EXTRACT_SECTIONS]
+    for section in sections:
         text = _section_field(section, "text", "") or ""
         if not text.strip():
             continue
