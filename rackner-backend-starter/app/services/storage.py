@@ -52,9 +52,16 @@ def put(data: bytes, *, filename: str, prefix: str = "") -> str:
     if config.STORAGE_BACKEND == "s3":
         import boto3
 
-        extra = {"ServerSideEncryption": "aws:kms"}
+        # The provisioned bucket enforces default encryption (SSE-S3), so a
+        # plain put is already encrypted at rest. Request SSE-KMS only when a
+        # CMK is configured — sending "aws:kms" unconditionally needs KMS
+        # grants the task role doesn't carry.
+        extra = {}
         if config.KMS_KEY_ID:
-            extra["SSEKMSKeyId"] = config.KMS_KEY_ID
+            extra = {
+                "ServerSideEncryption": "aws:kms",
+                "SSEKMSKeyId": config.KMS_KEY_ID,
+            }
         boto3.client("s3", region_name=config.AWS_REGION).put_object(
             Bucket=config.S3_BUCKET, Key=key, Body=data, **extra
         )

@@ -15,7 +15,11 @@ from app.database import Base
 import app.models  # noqa: F401 — registers all tables on Base.metadata
 
 config = context.config
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# set_main_option applies configparser %-interpolation. URL-encoded password
+# characters (%40 for @, %23 for #, ...) are valid in DATABASE_URL but invalid
+# interpolation syntax — unescaped they crash alembic before any DB contact,
+# which on ECS means a migration crash-loop at boot. %% renders back to %.
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
