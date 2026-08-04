@@ -62,6 +62,12 @@ BEDROCK_MODEL_ID = os.getenv(
 )
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
+# Pre-generate the analysis in the background when an opportunity detail is
+# opened, so GET /analysis is a cache hit instead of a 30s+ synchronous model
+# call (SCHEMA_v2 open question 3, option (a)). Costs one model call per
+# detail view in bedrock mode — set false to only generate on explicit demand.
+ANALYSIS_PREWARM = os.getenv("ANALYSIS_PREWARM", "true").lower() == "true"
+
 # --- External government data ---
 # SAM.gov Get Opportunities (data.gov key). Unset → those routes 503 cleanly.
 SAM_GOV_API_KEY = get_secret("SAM_GOV_API_KEY", "")

@@ -23,6 +23,10 @@ extractor in isolation. The UI does not call them.
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -37,7 +41,41 @@ from app.models import Opportunity, User
 from app.routes.documents import get_or_build_document
 from app.schemas import Analysis, Obligation
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(tags=["analysis"])
+
+# --------------------------------------------------------------------------- #
+# In-flight guard.
+#
+# One (user, opportunity) analysis may be generating at a time — whether the
+# trigger was a background pre-warm or a direct GET. Without this, a user who
+# opens the analysis tab while the warm is mid-flight buys the same 30s+
+# Bedrock call twice. Process-local by design: with several ECS tasks the
+# worst case is one duplicate call per task, which is an acceptable cost for
+# not needing a distributed lock.
+# --------------------------------------------------------------------------- #
+_inflight: set[tuple[int, str]] = set()
+_inflight_lock = threading.Lock()
+
+
+def _acquire(user_id: int, opportunity_id: str) -> bool:
+    with _inflight_lock:
+        key = (user_id, opportunity_id)
+        if key in _inflight:
+            return False
+        _inflight.add(key)
+        return True
+
+
+def _release(user_id: int, opportunity_id: str) -> None:
+    with _inflight_lock:
+        _inflight.discard((user_id, opportunity_id))
+
+
+def _is_inflight(user_id: int, opportunity_id: str) -> bool:
+    with _inflight_lock:
+        return (user_id, opportunity_id) in _inflight
 
 
 class ExtractRequest(BaseModel):
@@ -92,6 +130,19 @@ def _to_schema(row: AnalysisModel) -> Analysis:
     )
 
 
+def _cached_analysis(
+    db: Session, opportunity_id: str, user_id: int
+) -> AnalysisModel | None:
+    return db.scalar(
+        select(AnalysisModel)
+        .where(
+            AnalysisModel.opportunity_id == opportunity_id,
+            AnalysisModel.user_id == user_id,
+        )
+        .order_by(AnalysisModel.generated_at.desc())
+    )
+
+
 def ensure_analysis(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
     """Return this user's analysis for the opportunity, generating it on a miss.
 
@@ -99,17 +150,34 @@ def ensure_analysis(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
     job. Generation reads the persisted SourceDocument sections, so obligations
     are verified against the same text `GET /document` serves.
     """
-    row = db.scalar(
-        select(AnalysisModel)
-        .where(
-            AnalysisModel.opportunity_id == opp.id,
-            AnalysisModel.user_id == user.id,
-        )
-        .order_by(AnalysisModel.generated_at.desc())
-    )
+    row = _cached_analysis(db, opp.id, user.id)
     if row is not None:
         return row
 
+    if not _acquire(user.id, opp.id):
+        # Someone else (a pre-warm, or another request) is generating this
+        # exact analysis. Wait for their row instead of paying for the same
+        # model call twice; on timeout, take over and generate ourselves.
+        row = _wait_for_inflight(db, opp.id, user.id)
+        if row is not None:
+            return row
+        if not _acquire(user.id, opp.id):
+            # Still held after the timeout — generate unguarded rather than
+            # fail the request. Worst case is one duplicate call.
+            return _generate_and_store(db, opp, user)
+
+    try:
+        # Re-check inside the guard: the previous holder may have landed a row
+        # between our cache miss and our acquire.
+        row = _cached_analysis(db, opp.id, user.id)
+        if row is not None:
+            return row
+        return _generate_and_store(db, opp, user)
+    finally:
+        _release(user.id, opp.id)
+
+
+def _generate_and_store(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
     doc = get_or_build_document(db, opp)
     result = gateway.analyze(
         _opportunity_dict(opp), _lifecycle_dict(db, user), doc.sections
@@ -134,6 +202,64 @@ def ensure_analysis(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
         db.commit()
         db.refresh(row)
     return row
+
+
+def warm_analysis(opportunity_id: str, user_id: int) -> None:
+    """Best-effort background pre-generation (SCHEMA_v2 question 3, option (a)).
+
+    Fired from the opportunity detail view so that by the time the user clicks
+    the analysis tab, GET /analysis is a cache hit instead of a synchronous
+    model call. Opens its OWN session: FastAPI tears down request dependencies
+    before background tasks run, so the request's session is already closed.
+
+    Skips silently when an analysis is cached, one is already generating, or
+    the opportunity has no grounding text (a transient result wouldn't persist
+    — warming would burn a model call per page view for nothing). Failures are
+    logged, never raised: the warm is an optimization, not a dependency.
+    """
+    from app.database import SessionLocal
+
+    if _is_inflight(user_id, opportunity_id):
+        return  # already generating (another warm, or a live GET) — skip, don't queue
+    try:
+        db = SessionLocal()
+        try:
+            opp = db.get(Opportunity, opportunity_id)
+            user = db.get(User, user_id)
+            if opp is None or user is None:
+                return
+            if not (opp.description or "").strip():
+                return  # nothing to ground in; result wouldn't be cacheable
+            if _cached_analysis(db, opportunity_id, user_id) is not None:
+                return
+            ensure_analysis(db, opp, user)  # guard-aware; dedupes with live GETs
+            log.info(
+                "analysis pre-warmed",
+                extra={"opportunity_id": opportunity_id, "user_id": user_id},
+            )
+        finally:
+            db.close()
+    except Exception:
+        log.warning("analysis pre-warm failed", exc_info=True)
+
+
+def _wait_for_inflight(
+    db: Session, opportunity_id: str, user_id: int, *, timeout_s: float = 25.0
+) -> AnalysisModel | None:
+    """A generation is running elsewhere — wait for its row instead of paying
+    for the same model call twice. Polls in short steps; on timeout the caller
+    falls through to generating inline, exactly as before pre-warming existed."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if not _is_inflight(user_id, opportunity_id):
+            break
+        time.sleep(0.4)
+        db.expire_all()  # fresh read — the warm wrote via another session
+        row = _cached_analysis(db, opportunity_id, user_id)
+        if row is not None:
+            return row
+    db.expire_all()
+    return _cached_analysis(db, opportunity_id, user_id)
 
 
 @router.get("/opportunities/{opportunity_id}/analysis", response_model=Analysis)

@@ -22,13 +22,15 @@ from __future__ import annotations
 import datetime
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import config
 from app.deps import current_user, get_db
 from app.models import LifecycleProfile as LifecycleProfileModel
 from app.models import Opportunity, User
+from app.routes.analysis import warm_analysis
 from app.schemas import OpportunitySummary
 from app.services import fit, samgov, usaspending
 from app.services.http import UpstreamError
@@ -238,9 +240,24 @@ def suggested_opportunities(
     return _clean(results)
 
 
+def _maybe_prewarm(
+    background: BackgroundTasks, *, opportunity_id: str, description: str | None, user: User
+) -> None:
+    """Queue a background analysis warm when there is text to ground in.
+
+    Fired from the detail view — the moment we know the user is looking at
+    this opportunity — so the analysis tab is a cache hit instead of a 30s+
+    synchronous Bedrock call (SCHEMA_v2 question 3, option (a)). The task runs
+    after the response is sent; warm_analysis dedupes and fails soft.
+    """
+    if config.ANALYSIS_PREWARM and (description or "").strip():
+        background.add_task(warm_analysis, opportunity_id, user.id)
+
+
 @router.get("/opportunities/{opportunity_id}", response_model=OpportunitySummary)
 def get_opportunity(
     opportunity_id: str,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> OpportunitySummary:
@@ -253,6 +270,9 @@ def get_opportunity(
     if row is not None and (row.description or row.kind == "expiring_award"):
         summary = _to_summary(row)
         summary["fit_score"] = fit.score(summary, _lifecycle(db, user))
+        _maybe_prewarm(
+            background, opportunity_id=row.id, description=row.description, user=user
+        )
         return OpportunitySummary(**summary)
 
     try:
@@ -261,6 +281,9 @@ def get_opportunity(
         if row is not None:
             summary = _to_summary(row)  # serve stale rather than nothing
             summary["fit_score"] = fit.score(summary, _lifecycle(db, user))
+            _maybe_prewarm(
+                background, opportunity_id=row.id, description=row.description, user=user
+            )
             return OpportunitySummary(**summary)
         raise _fail(exc) from exc
 
@@ -268,10 +291,19 @@ def get_opportunity(
         if row is not None:
             summary = _to_summary(row)
             summary["fit_score"] = fit.score(summary, _lifecycle(db, user))
+            _maybe_prewarm(
+                background, opportunity_id=row.id, description=row.description, user=user
+            )
             return OpportunitySummary(**summary)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown opportunity.")
 
     fetched["description"] = samgov.fetch_description(fetched.get("_description_url", ""))
     _cache(db, [fetched])
     fetched["fit_score"] = fit.score(fetched, _lifecycle(db, user))
+    _maybe_prewarm(
+        background,
+        opportunity_id=fetched["id"],
+        description=fetched.get("description"),
+        user=user,
+    )
     return _clean([fetched])[0]
