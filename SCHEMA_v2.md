@@ -228,11 +228,10 @@ original. Unverified quotes are returned with `verified=false`, never dropped.
 | `verbatim_quote` | string | exact source words — same highlight path as obligations |
 | `verified` | boolean | set by the **backend** (exact-substring vs the cited section), never the model |
 
-`verbatim_quote`/`verified` are an additive extension the backend already
-serves (decided 2026-08-03). Extra JSON keys are harmless to the current
-frontend; **types.ts still declares only `{section, page}` and needs Remy's
-two-line sync** to render the highlight. Chat quotes go through the same
-realign-then-verify pipeline as obligations.
+Decided and fully wired 2026-08-03: the backend serves both fields (same
+realign-then-verify pipeline as obligations), `types.ts` declares them, and
+ChatPanel passes verified quotes into the SourcePane highlight path.
+Unverified quotes still jump to the section but highlight nothing.
 
 ### ChatAnswer
 | Field | Type |
@@ -299,10 +298,9 @@ The `lifecycle_profiles` table keeps `past_performance`, `contract_vehicles`,
 not serialized. Dropping the columns would lose scoring signal for no gain.
 
 ### Open contract questions (not decided unilaterally)
-1. ~~**`ChatCitation` grounding.**~~ **Resolved 2026-08-03**: the backend now
-   serves `verbatim_quote` + `verified` on every chat citation (additive, so
-   the current frontend is unaffected). Remaining half: Remy adds the two
-   fields to `types.ts` ChatCitation and wires the highlight.
+1. ~~**`ChatCitation` grounding.**~~ **Resolved and fully wired 2026-08-03**,
+   both sides: backend serves `verbatim_quote` + `verified`, `types.ts`
+   declares them, ChatPanel highlights verified quotes through SourcePane.
 2. **Chat history.** `POST /chat` sends no prior turns, so follow-ups have no
    context. Adding `history` is a contract change — needs Remy.
 3. **Analysis latency.** A real model over a 100-page solicitation can exceed

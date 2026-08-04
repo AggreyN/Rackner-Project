@@ -213,6 +213,11 @@ export interface ContactResult {
 export interface ChatCitation {
   section: string;
   page: number | null;
+  /** Exact source words — same highlight path as obligations. */
+  verbatim_quote: string;
+  /** Backend-verified exact substring of the cited section (never the model's
+   *  own claim). Only verified quotes are safe to highlight. */
+  verified: boolean;
 }
 
 export interface ChatAnswer {

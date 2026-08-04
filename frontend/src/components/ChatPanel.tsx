@@ -75,7 +75,20 @@ export default function ChatPanel({
                   {m.citations.map((c, j) => (
                     <button
                       key={c.section}
-                      onClick={() => onCite({ section: c.section })}
+                      // Verified quotes ride the same highlight path as
+                      // obligations; unverified ones still jump to the
+                      // section but highlight nothing (nothing is grounded).
+                      onClick={() =>
+                        onCite({
+                          section: c.section,
+                          quote: c.verified ? c.verbatim_quote : undefined,
+                        })
+                      }
+                      title={
+                        c.verified
+                          ? undefined
+                          : "Quote could not be verified against the source"
+                      }
                       className="text-[#16324f] underline underline-offset-2 hover:text-[#0f2438]"
                     >
                       {c.section}

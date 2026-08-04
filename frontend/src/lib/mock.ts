@@ -1115,8 +1115,22 @@ const CHAT_RULES: Array<{ match: RegExp; opp?: string; answer: ChatAnswer }> = [
       answer:
         "Two gates: (1) CMMC Level 2 is required at award — confirm your certification timeline; (2) it's a HUBZone set-aside, which Rackner qualifies for. No OCI flags detected.",
       citations: [
-        { section: "§M.4", page: 19 },
-        { section: "§K.1", page: 12 },
+        {
+          section: "§M.4",
+          page: 19,
+          // Exact substrings of DOCUMENTS["disa-soc-0042"] section text — the
+          // same invariant the backend guarantees, so the highlight works in
+          // mock mode too.
+          verbatim_quote:
+            "Offeror must possess or obtain CMMC Level 2 certification prior to contract award.",
+          verified: true,
+        },
+        {
+          section: "§K.1",
+          page: 12,
+          verbatim_quote: "This procurement is a HUBZone set-aside.",
+          verified: true,
+        },
       ],
     },
   },
@@ -1126,7 +1140,15 @@ const CHAT_RULES: Array<{ match: RegExp; opp?: string; answer: ChatAnswer }> = [
     answer: {
       answer:
         "Offers are due 2:00 PM ET on 30 August 2026 through the SAM.gov submission portal — 21 days out. Late offers will not be considered.",
-      citations: [{ section: "§L.2", page: 14 }],
+      citations: [
+        {
+          section: "§L.2",
+          page: 14,
+          verbatim_quote:
+            "Offers are due no later than 2:00 PM ET on 30 August 2026 through the SAM.gov submission portal.",
+          verified: true,
+        },
+      ],
     },
   },
   {
