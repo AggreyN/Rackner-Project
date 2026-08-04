@@ -25,10 +25,13 @@ export default function ChatPanel({
     const question = input.trim();
     if (!question || busy) return;
     setInput("");
+    // Snapshot the transcript BEFORE appending this question — these are the
+    // prior turns the backend uses to resolve follow-ups.
+    const history = messages;
     setMessages((m) => [...m, { role: "user", text: question }]);
     setBusy(true);
     try {
-      const res = await askChat(opportunityId, question);
+      const res = await askChat(opportunityId, question, history);
       setMessages((m) => [
         ...m,
         { role: "assistant", text: res.answer, citations: res.citations },

@@ -12,6 +12,7 @@
 import type {
   Analysis,
   ChatAnswer,
+  ChatMessage,
   ContactResult,
   LifecycleProfile,
   OpportunitySummary,
@@ -1162,9 +1163,26 @@ const CHAT_RULES: Array<{ match: RegExp; opp?: string; answer: ChatAnswer }> = [
   },
 ];
 
-export async function askChat(id: string, question: string): Promise<ChatAnswer> {
+export async function askChat(
+  id: string,
+  question: string,
+  history: ChatMessage[] = []
+): Promise<ChatAnswer> {
   const rule = CHAT_RULES.find((r) => (!r.opp || r.opp === id) && r.match.test(question));
   if (rule) return delay(rule.answer, 900);
+
+  // Follow-up resolution, mirroring the backend: a question that matches no
+  // rule by itself ("what about the deadline for that?") retries against the
+  // most recent user turns, so pronouns resolve in mock mode too.
+  for (let i = history.length - 1; i >= 0; i--) {
+    const turn = history[i];
+    if (turn.role !== "user") continue;
+    const followupRule = CHAT_RULES.find(
+      (r) => (!r.opp || r.opp === id) && r.match.test(`${turn.text} ${question}`)
+    );
+    if (followupRule) return delay(followupRule.answer, 900);
+  }
+
   const a = ANALYSES[id];
   return delay(
     {

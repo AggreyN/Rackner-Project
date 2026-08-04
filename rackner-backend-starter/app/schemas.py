@@ -189,8 +189,39 @@ class ChatAnswer(BaseModel):
     citations: list[ChatCitation] = Field(default_factory=list)
 
 
+class ChatTurn(BaseModel):
+    """One prior turn, as the frontend's ChatMessage minus citations —
+    citations are display state, not conversational context."""
+
+    role: Literal["user", "assistant"]
+    text: str
+
+
 class ChatRequest(BaseModel):
     question: str
+    # Optional so pre-history clients keep working (additive, like ChatCitation).
+    history: list[ChatTurn] = Field(default_factory=list)
+
+
+# Server-side history caps — a long conversation must never blow the model's
+# context or the request size. Most recent turns win.
+CHAT_HISTORY_MAX_TURNS = 12
+CHAT_HISTORY_MAX_CHARS = 6000
+
+
+def trim_history(history: list[ChatTurn]) -> list[ChatTurn]:
+    """Keep the most recent turns within both caps. Oldest are dropped first —
+    silently, because a trimmed follow-up degrades to a first question, which
+    is exactly the pre-history behaviour."""
+    kept: list[ChatTurn] = []
+    chars = 0
+    for turn in reversed(history[-CHAT_HISTORY_MAX_TURNS:]):
+        chars += len(turn.text)
+        if chars > CHAT_HISTORY_MAX_CHARS:
+            break
+        kept.append(turn)
+    kept.reverse()
+    return kept
 
 
 # --- scoring -----------------------------------------------------------------

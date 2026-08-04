@@ -341,7 +341,7 @@ def test_gateway_drops_citations_to_sections_that_do_not_exist(monkeypatch):
     monkeypatch.setattr(
         mock,
         "answer_question",
-        lambda q, s: {"answer": "x", "citations": [{"section": "Z.9.9", "page": 1}]},
+        lambda q, s, h=None: {"answer": "x", "citations": [{"section": "Z.9.9", "page": 1}]},
     )
     result = gateway.answer_question("q", [{"ref": "C.1", "page": 1, "text": "text"}])
     assert result["citations"] == []
@@ -361,7 +361,7 @@ def test_chat_citation_quotes_are_grounded_like_obligations(monkeypatch):
     monkeypatch.setattr(
         mock,
         "answer_question",
-        lambda q, s: {
+        lambda q, s, h=None: {
             "answer": "x",
             "citations": [
                 # re-wrapped by the model -> must be repaired, then verified

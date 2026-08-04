@@ -146,6 +146,28 @@ def test_real_chat_citations_are_grounded(bedrock_mode, sections):
             assert citation["verbatim_quote"] in by_ref[citation["section"]]
 
 
+def test_real_followup_resolves_via_history(bedrock_mode, sections):
+    """Live model: a pronoun follow-up plus history must produce a grounded,
+    section-cited answer about the thing the history named."""
+    from app.llm import gateway
+
+    result = gateway.answer_question(
+        "How quickly must we do that?",
+        sections,
+        history=[
+            {"role": "user", "text": "What are the cyber incident reporting requirements?"},
+            {"role": "assistant", "text": "Cyber incidents must be reported — see C.3.1."},
+        ],
+    )
+    assert result["answer"], "no answer from the live model"
+    assert "72" in result["answer"], f"expected the 72-hour deadline, got: {result['answer'][:120]}"
+    by_ref = {s["ref"]: s["text"] for s in sections}
+    for citation in result["citations"]:
+        assert citation["section"] in by_ref
+        if citation["verified"]:
+            assert citation["verbatim_quote"] in by_ref[citation["section"]]
+
+
 def test_real_model_cannot_self_certify_verification(bedrock_mode, sections):
     """Even if the model emits verified=true, the backend must overwrite it."""
     from app.llm import gateway

@@ -5,20 +5,13 @@
 Grounded in the same persisted SourceDocument sections that back /document and
 /analysis, so an answer can only cite text the UI can actually show.
 
-TWO CONTRACT GAPS — flagged, NOT decided unilaterally (SCHEMA_v2.md, open
-questions 1 and 2):
-
-  1. ChatCitation carries {section, page} only. The build spec asks for
-     verbatim_quote and verified as well, so chat citations would use the same
-     highlight path as obligations. That is a change to types.ts and needs
-     Remy. The seam is ready: gateway.answer_question already resolves each
-     citation against the section it names, so adding the quote is a small
-     change here once the shape is agreed.
-
-  2. No conversation history. The request sends a single question, so
-     follow-ups ("what about the deadline for that?") have no context. Adding a
-     `history` field is likewise a types.ts change. Until then this endpoint is
-     honestly single-turn rather than pretending to remember.
+Both former contract gaps are now closed (SCHEMA_v2.md, resolved questions 1
+and 2): citations carry verbatim_quote/verified through the same grounding
+pipeline as obligations, and the request accepts optional `history` — prior
+turns the model may use to resolve what a follow-up refers to, never as a
+citable source. History is capped server-side (schemas.trim_history), so a
+long conversation degrades to recent context rather than blowing the model's
+window; clients that omit it keep the old single-turn behaviour.
 """
 
 from __future__ import annotations
@@ -30,7 +23,7 @@ from app.deps import current_user, get_db
 from app.llm import gateway
 from app.models import Opportunity, User
 from app.routes.documents import get_or_build_document
-from app.schemas import ChatAnswer, ChatRequest
+from app.schemas import ChatAnswer, ChatRequest, trim_history
 
 router = APIRouter(tags=["chat"])
 
@@ -69,4 +62,5 @@ def ask(
             citations=[],
         )
 
-    return ChatAnswer(**gateway.answer_question(question, doc.sections))
+    history = [t.model_dump() for t in trim_history(body.history)]
+    return ChatAnswer(**gateway.answer_question(question, doc.sections, history))

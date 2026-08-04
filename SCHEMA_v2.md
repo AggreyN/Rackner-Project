@@ -255,7 +255,7 @@ Unverified quotes still jump to the section but highlight nothing.
 | GET | `/opportunities/{id}/document` | SourceDocument |
 | GET | `/opportunities/{id}/spend` | SpendSummary |
 | GET | `/opportunities/{id}/contact` | ContactResult |
-| POST | `/opportunities/{id}/chat` | `{question}` → ChatAnswer |
+| POST | `/opportunities/{id}/chat` | `{question, history?}` → ChatAnswer |
 
 Plus `/`, `/health`, and `POST /auth/register` (kept for seeding; the UI never
 calls it). Everything except `/auth/login`, `/`, `/health` requires a bearer
@@ -301,8 +301,12 @@ not serialized. Dropping the columns would lose scoring signal for no gain.
 1. ~~**`ChatCitation` grounding.**~~ **Resolved and fully wired 2026-08-03**,
    both sides: backend serves `verbatim_quote` + `verified`, `types.ts`
    declares them, ChatPanel highlights verified quotes through SourcePane.
-2. **Chat history.** `POST /chat` sends no prior turns, so follow-ups have no
-   context. Adding `history` is a contract change — needs Remy.
+2. ~~**Chat history.**~~ **Resolved and fully wired 2026-08-04**, both sides:
+   `POST /chat` accepts optional `history: [{role, text}]` (the frontend sends
+   its transcript, minus citations). History resolves what a follow-up refers
+   to but is NEVER a citable source — citations may only name real sections.
+   Capped server-side (most recent 12 turns / 6000 chars); clients that omit
+   the field keep the old single-turn behaviour.
 3. **Analysis latency.** A real model over a 100-page solicitation can exceed
    30s and the client sets no timeout. Current approach: keep `GET` synchronous
    and cache/pre-warm. The alternative — `202` + poll — is a contract change.

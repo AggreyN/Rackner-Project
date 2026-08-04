@@ -188,7 +188,7 @@ def analyze(opportunity: dict, lifecycle_profile: dict, sections: list) -> dict:
     }
 
 
-def answer_question(question: str, sections: list) -> dict:
+def answer_question(question: str, sections: list, history: list | None = None) -> dict:
     """Answer a question grounded in the solicitation's own sections.
 
     Returns SCHEMA_v2's ChatAnswer shape: {answer, citations[{section, page}]}.
@@ -209,14 +209,15 @@ def answer_question(question: str, sections: list) -> dict:
 
         parsed = _parse_json(
             bedrock_client.invoke(
-                prompts.CHAT_SYSTEM, prompts.chat_user_prompt(question, sections)
+                prompts.CHAT_SYSTEM,
+                prompts.chat_user_prompt(question, sections, history),
             )
         )
         parsed = parsed if isinstance(parsed, dict) else {}
         answer = str(parsed.get("answer", "") or "")
         raw_citations = parsed.get("citations") or []
     else:
-        result = mock.answer_question(question, sections)
+        result = mock.answer_question(question, sections, history)
         answer, raw_citations = result["answer"], result["citations"]
 
     citations = []

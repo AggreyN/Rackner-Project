@@ -30,6 +30,7 @@ import { getToken } from "./auth";
 import type {
   Analysis,
   ChatAnswer,
+  ChatMessage,
   ContactResult,
   LifecycleProfile,
   OpportunitySummary,
@@ -157,13 +158,23 @@ export async function getContact(id: string): Promise<ContactResult> {
 
 // ---------- chatbot ----------
 
-export async function askChat(id: string, question: string): Promise<ChatAnswer> {
-  if (USE_MOCK) return mock.askChat(id, question);
+export async function askChat(
+  id: string,
+  question: string,
+  history: ChatMessage[] = []
+): Promise<ChatAnswer> {
+  if (USE_MOCK) return mock.askChat(id, question, history);
   return json(
     await fetch(`${BASE}/opportunities/${encodeURIComponent(id)}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers() },
-      body: JSON.stringify({ question }),
+      // Prior turns let the backend resolve follow-ups ("the deadline for
+      // THAT"). Citations are display state — send role/text only. The
+      // backend caps length server-side, so the whole transcript is fine.
+      body: JSON.stringify({
+        question,
+        history: history.map(({ role, text }) => ({ role, text })),
+      }),
     })
   );
 }

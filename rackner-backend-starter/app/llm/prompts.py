@@ -99,11 +99,19 @@ Rules:
   about federal contracting.
 - Do not speculate about price, competitors, or the government's intent.
 - Cite section refs EXACTLY as they appear in the input (no "§" prefix).
-- Do NOT set a "verified" field; the backend computes that."""
+- Do NOT set a "verified" field; the backend computes that.
+- A CONVERSATION SO FAR may be included. Use it ONLY to resolve what the
+  question refers to ("that clause", "the deadline you mentioned"). It is
+  conversation, not source material: every factual claim must still come from
+  the sections, and citations may only reference the sections."""
 
 
-def chat_user_prompt(question: str, sections: list) -> str:
-    """Render the sections the answer must be grounded in, then the question."""
+def chat_user_prompt(question: str, sections: list, history: list | None = None) -> str:
+    """Render the grounding sections, any prior turns, then the question.
+
+    History renders BETWEEN sections and question: context for reading the
+    question, positioned so the model never mistakes it for source text.
+    """
     blocks = []
     for section in sections:
         if isinstance(section, dict):
@@ -115,8 +123,17 @@ def chat_user_prompt(question: str, sections: list) -> str:
                 getattr(section, "text", ""),
             )
         blocks.append(f"[section {ref} | page {page}]\n{text}")
-    return (
-        "SOLICITATION SECTIONS:\n\n"
-        + "\n\n".join(blocks)
-        + f"\n\nQUESTION: {question}"
-    )
+
+    prompt = "SOLICITATION SECTIONS:\n\n" + "\n\n".join(blocks)
+
+    if history:
+        turns = []
+        for turn in history:
+            role = turn.get("role") if isinstance(turn, dict) else getattr(turn, "role", "")
+            text = turn.get("text") if isinstance(turn, dict) else getattr(turn, "text", "")
+            if role and text:
+                turns.append(f"{role}: {text}")
+        if turns:
+            prompt += "\n\nCONVERSATION SO FAR:\n" + "\n".join(turns)
+
+    return prompt + f"\n\nQUESTION: {question}"

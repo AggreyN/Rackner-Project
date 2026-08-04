@@ -144,29 +144,55 @@ def analyze_factors(opportunity: dict, lifecycle_profile: dict) -> dict:
     return {"verdict_note": note, "factors": factors}
 
 
-def answer_question(question: str, sections: list) -> dict:
+def answer_question(question: str, sections: list, history: list | None = None) -> dict:
     """Deterministic grounded answer for LLM_MODE=mock.
 
     Scores each section by how many question words it contains and quotes the
     best match. Cites only sections it actually used, and returns no citations
     when nothing matches — the same "say so plainly" behaviour the real prompt
     demands, so the ungrounded path is exercised in demos too.
+
+    History resolves follow-ups the same way the real prompt instructs: when
+    the question alone matches nothing (pronouns — "what about the deadline
+    for that?"), keywords from the most recent user turns fill in what "that"
+    was. Context only, never a source: quotes still come from sections.
     """
     words = {w for w in _NORMALIZE_RE.split((question or "").lower()) if len(w) > 3}
-    scored = []
-    for section in sections or []:
-        if isinstance(section, dict):
-            ref, page, text = section.get("ref"), section.get("page"), section.get("text", "")
-        else:
-            ref, page, text = (
-                getattr(section, "ref", ""),
-                getattr(section, "page", None),
-                getattr(section, "text", ""),
-            )
-        low = (text or "").lower()
-        hits = sum(1 for w in words if w in low)
-        if hits:
-            scored.append((hits, ref, page, text))
+
+    def _history_words() -> set[str]:
+        out: set[str] = set()
+        for turn in reversed(history or []):
+            role = turn.get("role") if isinstance(turn, dict) else getattr(turn, "role", "")
+            text = turn.get("text") if isinstance(turn, dict) else getattr(turn, "text", "")
+            if role == "user" and text:
+                out |= {w for w in _NORMALIZE_RE.split(text.lower()) if len(w) > 3}
+                if len(out) >= 12:
+                    break
+        return out
+
+    def _score(match_words: set[str]) -> list[tuple]:
+        scored = []
+        for section in sections or []:
+            if isinstance(section, dict):
+                ref, page, text = section.get("ref"), section.get("page"), section.get("text", "")
+            else:
+                ref, page, text = (
+                    getattr(section, "ref", ""),
+                    getattr(section, "page", None),
+                    getattr(section, "text", ""),
+                )
+            low = (text or "").lower()
+            hits = sum(1 for w in match_words if w in low)
+            if hits:
+                scored.append((hits, ref, page, text))
+        return scored
+
+    scored = _score(words)
+    if not scored and history:
+        # Follow-up: the question alone was all pronouns — resolve "that"
+        # from the recent user turns and try again.
+        words = words | _history_words()
+        scored = _score(words)
 
     if not scored:
         return {
