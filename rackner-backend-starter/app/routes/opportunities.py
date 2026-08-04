@@ -142,7 +142,30 @@ def _clean(summaries: list[dict]) -> list[OpportunitySummary]:
     ]
 
 
+def _cached_sam_rows(db: Session, *, query: str, kinds: list[str], limit: int) -> list[dict]:
+    """Fallback when SAM.gov is down: search the rows earlier searches cached.
+
+    Same pattern as the detail view's serve-stale — a rate-limited key must
+    not make previously seen opportunities vanish. Matches q against title,
+    description and solicitation number, newest first.
+    """
+    wanted = [k for k in kinds if k in SAM_KINDS] or list(SAM_KINDS)
+    stmt = select(Opportunity).where(Opportunity.kind.in_(wanted))
+    if query:
+        needle = f"%{query}%"
+        stmt = stmt.where(
+            Opportunity.title.ilike(needle)
+            | Opportunity.description.ilike(needle)
+            | Opportunity.solicitation_number.ilike(needle)
+        )
+    rows = db.scalars(
+        stmt.order_by(Opportunity.fetched_at.desc()).limit(limit)
+    ).all()
+    return [_to_summary(row) for row in rows]
+
+
 def _collect(
+    db: Session,
     *,
     query: str,
     kinds: list[str],
@@ -150,21 +173,49 @@ def _collect(
     expiring_to: int | None,
     limit: int,
 ) -> list[dict]:
-    """Query whichever sources the requested kinds imply."""
+    """Query whichever sources the requested kinds imply — independently.
+
+    One source being down must not blank the other (measured failure mode: a
+    rate-limited SAM key 503'd the whole search while USAspending was
+    healthy). Each source degrades on its own — SAM falls back to cached rows
+    — and only when EVERY requested source produced nothing and at least one
+    errored does the caller see a 503.
+    """
     wants_expiring = (not kinds) or ("expiring_award" in kinds)
     wants_live = (not kinds) or bool(set(kinds) & SAM_KINDS)
 
     results: list[dict] = []
+    failures: list[UpstreamError] = []
+
     if wants_live:
-        results.extend(
-            samgov.search(query, kinds=[k for k in kinds if k in SAM_KINDS] or None, limit=limit)
-        )
+        try:
+            results.extend(
+                samgov.search(
+                    query, kinds=[k for k in kinds if k in SAM_KINDS] or None, limit=limit
+                )
+            )
+        except UpstreamError as exc:
+            failures.append(exc)
+            cached = _cached_sam_rows(db, query=query, kinds=kinds, limit=limit)
+            if cached:
+                log.warning(
+                    "%s unavailable (%s); serving %d cached solicitations",
+                    exc.service,
+                    exc.detail,
+                    len(cached),
+                )
+                results.extend(cached)
+
     if wants_expiring:
-        expiring = usaspending.expiring_awards(
-            from_months=expiring_from if expiring_from is not None else 12,
-            to_months=expiring_to if expiring_to is not None else 18,
-            limit=limit,
-        )
+        try:
+            expiring = usaspending.expiring_awards(
+                from_months=expiring_from if expiring_from is not None else 12,
+                to_months=expiring_to if expiring_to is not None else 18,
+                limit=limit,
+            )
+        except UpstreamError as exc:
+            failures.append(exc)
+            expiring = []
         # USAspending has no free-text search, so apply `q` here — otherwise a
         # text search would return recompete rows about anything, which reads
         # as wrong results rather than a missing filter.
@@ -180,6 +231,14 @@ def _collect(
                 ).lower()
             ]
         results.extend(expiring)
+
+    if not results and failures:
+        # Nothing from anywhere and at least one upstream is down — a clean
+        # error beats an empty list the UI would render as "nothing exists".
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "; ".join(f"{f.service} is unavailable right now. {f.detail}" for f in failures),
+        )
     return results
 
 
@@ -193,17 +252,14 @@ def search_opportunities(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> list[OpportunitySummary]:
-    try:
-        results = _collect(
-            query=q,
-            kinds=_parse_kinds(kinds),
-            expiring_from=expiring_from,
-            expiring_to=expiring_to,
-            limit=limit,
-        )
-    except UpstreamError as exc:
-        raise _fail(exc) from exc
-
+    results = _collect(
+        db,
+        query=q,
+        kinds=_parse_kinds(kinds),
+        expiring_from=expiring_from,
+        expiring_to=expiring_to,
+        limit=limit,
+    )
     _cache(db, results)
     fit.rank(results, _lifecycle(db, user))
     return _clean(results)
@@ -224,17 +280,14 @@ def suggested_opportunities(
     null) rather than erroring — a new user should still see the market.
     """
     lifecycle = _lifecycle(db, user)
-    try:
-        results = _collect(
-            query="",
-            kinds=_parse_kinds(kinds),
-            expiring_from=expiring_from,
-            expiring_to=expiring_to,
-            limit=limit,
-        )
-    except UpstreamError as exc:
-        raise _fail(exc) from exc
-
+    results = _collect(
+        db,
+        query="",
+        kinds=_parse_kinds(kinds),
+        expiring_from=expiring_from,
+        expiring_to=expiring_to,
+        limit=limit,
+    )
     _cache(db, results)
     fit.rank(results, lifecycle)
     return _clean(results)

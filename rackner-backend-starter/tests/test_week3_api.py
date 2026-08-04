@@ -189,15 +189,54 @@ def test_search_path_is_not_matched_as_an_id(client, auth_headers, stub_upstream
 # --- fail soft (ground rule 8) ------------------------------------------------
 
 
-def test_search_returns_503_not_empty_when_sam_is_down(client, auth_headers, down_upstreams):
-    """An empty 200 would read as 'no opportunities exist'. It must be a 503."""
-    r = client.get("/opportunities/search?q=cyber", headers=auth_headers)
+def test_search_degrades_to_healthy_source_when_sam_is_down(
+    client, auth_headers, monkeypatch
+):
+    """Measured failure mode: a rate-limited SAM key used to 503 the WHOLE
+    search while USAspending was healthy. One source down must not blank the
+    other."""
+    def sam_down(*a, **k):
+        raise UpstreamError("SAM.gov", "HTTP 429 (rate limited)")
+
+    monkeypatch.setattr(samgov, "search", sam_down)
+    monkeypatch.setattr(usaspending, "expiring_awards", lambda **kw: [dict(AWARD_SUMMARY)])
+
+    r = client.get("/opportunities/search?q=managed", headers=auth_headers)
+    assert r.status_code == 200, "healthy USAspending results must still be served"
+    assert {o["kind"] for o in r.json()} == {"expiring_award"}
+
+
+def test_search_serves_cached_solicitations_when_sam_is_down(
+    client, auth_headers, stub_upstreams, monkeypatch
+):
+    """Serve-stale for search: rows cached by earlier searches must not vanish
+    when the key rate-limits."""
+    client.get("/opportunities/search?q=x", headers=auth_headers)  # caches SAM-1
+
+    def sam_down(*a, **k):
+        raise UpstreamError("SAM.gov", "HTTP 429 (rate limited)")
+
+    monkeypatch.setattr(samgov, "search", sam_down)
+    monkeypatch.setattr(usaspending, "expiring_awards", lambda **kw: [])
+
+    r = client.get("/opportunities/search?q=monitoring", headers=auth_headers)
+    assert r.status_code == 200
+    assert any(o["id"] == "SAM-1" for o in r.json()), "cached row should backfill"
+
+
+def test_search_returns_503_only_when_everything_failed(client, auth_headers, down_upstreams):
+    """No live sources, no cache matches -> a clean 503 naming the services."""
+    r = client.get("/opportunities/search?q=zz-no-cache-can-match-this", headers=auth_headers)
     assert r.status_code == 503
     assert "SAM.gov" in r.json()["detail"]
+    assert "USAspending" in r.json()["detail"]
 
 
 def test_503_names_the_failing_service(client, auth_headers, down_upstreams):
-    r = client.get("/opportunities/search?kinds=expiring_award", headers=auth_headers)
+    r = client.get(
+        "/opportunities/search?kinds=expiring_award&q=zz-nothing-cached-matches",
+        headers=auth_headers,
+    )
     assert r.status_code == 503
     assert "USAspending" in r.json()["detail"]
 

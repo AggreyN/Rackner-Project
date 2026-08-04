@@ -28,7 +28,11 @@ log = logging.getLogger(__name__)
 # measured taking >60s, so callers that can degrade should pass a shorter read.
 DEFAULT_TIMEOUT = (5, 30)
 
-_RETRY_STATUS = {429, 500, 502, 503, 504}
+# 5xx are transient; retry with backoff. 429 is deliberately NOT here: SAM.gov
+# 429s mean the key's DAILY quota is spent, which a 4-second backoff cannot
+# fix — retrying it three times turned a fast failure into a measured 47-51s
+# hang before the same error. Fail fast and let the route degrade.
+_RETRY_STATUS = {500, 502, 503, 504}
 
 
 class UpstreamError(RuntimeError):
@@ -75,9 +79,12 @@ def _call(method: str, url: str, *, service: str, timeout=DEFAULT_TIMEOUT, **kwa
         raise UpstreamError(service, str(exc)) from exc
 
     if not response.ok:
-        # Non-retryable: a bad key, a bad query, a missing record.
+        # Non-retryable: a bad key, a bad query, a missing record, a spent quota.
         log.warning("%s returned HTTP %s: %s", service, response.status_code, response.text[:200])
-        raise UpstreamError(service, f"HTTP {response.status_code}")
+        detail = f"HTTP {response.status_code}"
+        if response.status_code == 429:
+            detail += " (rate limited — the API key's request quota is spent)"
+        raise UpstreamError(service, detail)
 
     try:
         return response.json()

@@ -190,3 +190,56 @@ def test_postgres_gets_pre_ping_and_bounded_pool():
     assert kwargs["pool_pre_ping"] is True
     assert kwargs["pool_size"] >= 1
     assert kwargs["pool_recycle"] <= 3600
+
+
+# --- 429 fails fast -----------------------------------------------------------
+
+
+def test_429_is_not_retried(monkeypatch):
+    """A daily-quota 429 cannot clear inside a 4s backoff. Retrying it three
+    times turned a fast failure into a measured 47-51s hang. One attempt, then
+    a clean UpstreamError naming the quota."""
+    import requests as requests_lib
+
+    from app.services import http as http_mod
+
+    calls = {"n": 0}
+
+    class Fake429:
+        status_code = 429
+        ok = False
+        text = "rate limited"
+
+    def fake_request(method, url, timeout=None, **kwargs):
+        calls["n"] += 1
+        return Fake429()
+
+    monkeypatch.setattr(requests_lib, "request", fake_request)
+    import pytest as _pytest
+
+    with _pytest.raises(http_mod.UpstreamError) as exc:
+        http_mod.get_json("https://example.invalid/x", service="SAM.gov")
+    assert calls["n"] == 1, f"429 was retried {calls['n']} times; it must fail fast"
+    assert "rate limited" in str(exc.value)
+
+
+def test_5xx_is_still_retried(monkeypatch):
+    import requests as requests_lib
+
+    from app.services import http as http_mod
+
+    calls = {"n": 0}
+
+    class Fake502:
+        status_code = 502
+        ok = False
+        text = "bad gateway"
+
+    monkeypatch.setattr(
+        requests_lib, "request", lambda *a, **k: (calls.__setitem__("n", calls["n"] + 1), Fake502())[1]
+    )
+    import pytest as _pytest
+
+    with _pytest.raises(http_mod.UpstreamError):
+        http_mod.get_json("https://example.invalid/x", service="USAspending.gov")
+    assert calls["n"] == 3, f"5xx should retry (3 attempts), got {calls['n']}"
