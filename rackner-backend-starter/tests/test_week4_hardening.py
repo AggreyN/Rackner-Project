@@ -190,6 +190,9 @@ def test_postgres_gets_pre_ping_and_bounded_pool():
     assert kwargs["pool_pre_ping"] is True
     assert kwargs["pool_size"] >= 1
     assert kwargs["pool_recycle"] <= 3600
+    # Packets silently dropped by a wrong security group must fail in seconds
+    # (named 503), not hang for the OS TCP timeout.
+    assert 1 <= kwargs["connect_args"]["connect_timeout"] <= 30
 
 
 # --- 429 fails fast -----------------------------------------------------------

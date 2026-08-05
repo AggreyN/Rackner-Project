@@ -31,6 +31,10 @@ def _engine_kwargs(url: str) -> dict:
         "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
         "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
         "pool_recycle": 1800,  # under RDS's default idle-connection timeout
+        # A security group that silently drops packets makes connects hang for
+        # the OS TCP timeout (minutes) — seen in prod. Fail in seconds instead
+        # so requests get the named 503 rather than hanging the client.
+        "connect_args": {"connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "10"))},
     }
 
 
