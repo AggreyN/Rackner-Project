@@ -8,8 +8,12 @@ for later weeks so this week's deliverable (schema + auth) stays reviewable.
 Run:  uvicorn app.main:app --reload   →  http://localhost:8000/docs
 """
 
-from fastapi import FastAPI
+import logging
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app import config
 from app.logging_config import AccessLogMiddleware, setup as setup_logging
@@ -45,6 +49,33 @@ app.add_middleware(
 )
 # Outermost: every request gets an id + one JSON access line (CloudWatch-ready).
 app.add_middleware(AccessLogMiddleware)
+
+_log = logging.getLogger(__name__)
+
+
+# Fail-soft ground rule applies to our own database too: a DB failure is a
+# clean, NAMED 503 — never a bare 500. The distinct messages make the two
+# deployment failure modes diagnosable from outside without CloudWatch access
+# (bad credentials/unreachable vs. migrations-never-ran).
+@app.exception_handler(OperationalError)
+async def _db_unreachable(request: Request, exc: OperationalError):
+    _log.error("database unreachable: %s", exc.orig, exc_info=exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The database is unreachable right now. Try again shortly."},
+    )
+
+
+@app.exception_handler(ProgrammingError)
+async def _db_schema_broken(request: Request, exc: ProgrammingError):
+    _log.error("database schema error: %s", exc.orig, exc_info=exc)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "The database schema is not ready — have migrations run "
+            "against this database?"
+        },
+    )
 
 app.include_router(health.router)
 app.include_router(auth.router)

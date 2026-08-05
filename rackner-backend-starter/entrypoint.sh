@@ -1,18 +1,28 @@
 #!/bin/sh
 # Migrate, then serve. ECS tasks boot against a database whose schema may be
-# behind — or, on first deploy, entirely absent (the exact failure that made
-# every DB route 500 while /health stayed green). Retry briefly because RDS
-# can be unreachable in a task's first seconds; if migrations still fail,
-# exit nonzero so ECS restarts the task instead of serving a wrong-schema DB.
+# behind — or, on first deploy, entirely absent. Retry briefly because RDS can
+# be unreachable in a task's first seconds; if migrations still fail, exit
+# nonzero so ECS restarts the task instead of serving a wrong-schema DB.
+#
+# Every failed attempt prints the tail of alembic's own output — the task's
+# last log lines must name the real cause (bad password, missing database,
+# unreachable host), not just "gave up". Burying the psycopg error behind a
+# retry counter has already cost one debugging round-trip.
 
+LOG=/tmp/alembic-boot.log
 attempt=1
-until alembic upgrade head; do
+while :; do
+  if alembic upgrade head >"$LOG" 2>&1; then
+    cat "$LOG"
+    break
+  fi
+  echo "=== alembic upgrade head FAILED (attempt $attempt of 5) — underlying error: ===" >&2
+  tail -40 "$LOG" >&2
   if [ "$attempt" -ge 5 ]; then
-    echo "alembic upgrade head failed after $attempt attempts; giving up" >&2
+    echo "giving up after $attempt attempts; the error above is the real cause" >&2
     exit 1
   fi
   attempt=$((attempt + 1))
-  echo "alembic upgrade head failed; retry $attempt of 5 in 5s" >&2
   sleep 5
 done
 
