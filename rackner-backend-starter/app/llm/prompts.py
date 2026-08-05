@@ -56,6 +56,14 @@ relationships. If a factor has no supporting evidence, score it conservatively
 Do NOT compute compatibility_score or verdict — the backend derives those from
 the weighted factors."""
 
+CHATBOT_SYSTEM = """You answer questions about a specific U.S. federal solicitation, using ONLY the provided source text.
+
+Rules:
+- Base your answer strictly on the source text. Do not use outside knowledge or invent details.
+- If the answer is not in the text, say: "That isn't stated in this solicitation."
+- Quote or reference the relevant part of the source in your answer.
+- Be concise and factual."""
+
 
 def extract_user_prompt(chunk_text: str) -> str:
     return f"Extract obligations from this solicitation text:\n\n{chunk_text}"
