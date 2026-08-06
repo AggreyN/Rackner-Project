@@ -40,6 +40,10 @@ def main() -> int:
     ap.add_argument("--details", type=int, default=5, help="opportunities to fully warm")
     ap.add_argument("--demo-date", default="2026-08-28", help="prefer close dates after this")
     ap.add_argument("--sam-budget", type=int, default=16, help="max SAM.gov calls to spend")
+    ap.add_argument(
+        "--limit", type=int, default=100,
+        help="rows per search (one SAM call regardless — max out to stock the cache)",
+    )
     args = ap.parse_args()
 
     s = requests.Session()
@@ -58,7 +62,11 @@ def main() -> int:
             print(f"skipping search '{term}' — SAM budget protection")
             continue
         sam_spent += 1
-        r = s.get(f"{args.api}/opportunities/search", params={"q": term}, timeout=90)
+        r = s.get(
+            f"{args.api}/opportunities/search",
+            params={"q": term, "limit": args.limit},
+            timeout=120,
+        )
         if r.status_code != 200:
             detail = r.json().get("detail", "") if r.headers.get("content-type", "").startswith("application/json") else r.text
             print(f"search '{term}': {r.status_code} — {detail[:120]}")
