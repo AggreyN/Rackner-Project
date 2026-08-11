@@ -146,6 +146,9 @@ def to_summary(record: dict, *, today: datetime.date | None = None) -> dict:
         "_source_url": record.get("uiLink") or "",
         "_description_url": record.get("description") or "",
         "_point_of_contact": record.get("pointOfContact") or [],
+        # The full solicitation package (SOW, instructions, clauses) lives
+        # behind these download URLs, not in the description.
+        "_resource_links": record.get("resourceLinks") or [],
     }
 
 

@@ -15,15 +15,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import config
 from app.deps import current_user, get_db
+from app.models import Analysis as AnalysisModel
 from app.models import Opportunity
 from app.models import SourceDocument as SourceDocumentModel
 from app.models import SourceSection as SourceSectionModel
 from app.models import User
 from app.schemas import SourceDocument, SourceSection
-from app.services import ingest
+from app.services import attachments, ingest
 
 router = APIRouter(tags=["document"])
 
@@ -31,43 +34,116 @@ router = APIRouter(tags=["document"])
 def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
     """Return the stored SourceDocument for this opportunity, building it once.
 
-    One exception to build-once: a document built when the opportunity had no
-    source text yet. Search caches opportunities WITHOUT descriptions (the
-    description is a second, slow SAM call made on the detail path), so hitting
-    /document, /chat or /analysis before the detail view builds an empty
-    document. Once real text exists, an empty document is rebuilt — safe,
-    because nothing can have verified against zero sections, so no quote's
-    grounding text changes out from under it.
+    The document is description + every fetchable attachment (the notice's
+    resourceLinks — where the real solicitation lives). Build-once, with two
+    exceptions, both of which only ever GROW the document:
+
+    1. Built before any source text existed (search caches rows without
+       descriptions; the description arrives on the detail path). Once text
+       exists, an empty document is rebuilt — nothing can have verified
+       against zero sections.
+    2. Built with fewer attachments than the notice advertises (a download
+       429'd mid-build, or links arrived after the first build). When a later
+       request fetches strictly MORE attachments than the stored build has,
+       the document is rebuilt — and the opportunity's stored analyses are
+       deleted with it. Their citations were verified against the old text;
+       a grounding document must never change underneath a stored citation.
+       They regenerate against the fuller document on next view.
+
+    If fetching yields nothing new (quota dead, links broken), the stored
+    document is returned untouched — no thrash, no invalidation. One bounded
+    exception to grow-only: a late-arriving description rebuilds even when
+    the quota is dead, which can temporarily shrink attachment content to
+    description-only; `attachments_accounted` stays low, so the next
+    good-quota read regrows it, with analyses correctly invalidated both
+    times.
     """
     doc = db.scalar(
         select(SourceDocumentModel).where(
             SourceDocumentModel.opportunity_id == opp.id
         )
     )
+
+    links = list(opp.resource_links or [])[: config.SAM_MAX_ATTACHMENTS]
+    description = (opp.description or "").strip()
+
     if doc is not None:
-        if doc.sections or not (opp.description or "").strip():
+        needs_description = bool(description) and not doc.has_description
+        wants_more = len(links) > (doc.attachments_accounted or 0)
+        if not needs_description and not wants_more:
+            return doc  # the common case: zero fetching, zero SAM calls
+
+    blobs, exhausted = attachments.fetch_all(links)
+    # exhausted: every link resolved (fetched, or dead in a way retrying won't
+    # fix) — record them all so no future read re-attempts them. A quota-stop
+    # accounts only the successes, leaving the rest for a fresh-quota day.
+    accounted = len(links) if exhausted else len(blobs)
+
+    if doc is not None:
+        needs_description = bool(description) and not doc.has_description
+        grew = len(blobs) > (doc.attachments_ingested or 0)
+        if doc.sections and not grew and not needs_description:
+            # Nothing new to build — but remember what got resolved, so dead
+            # links stop being retried on every read.
+            if accounted > (doc.attachments_accounted or 0):
+                doc.attachments_accounted = accounted
+                db.commit()
             return doc
-        # Built before any source text existed; rebuild now that it does.
+        if not doc.sections and not blobs and not description:
+            # Still nothing to build from — but an exhausted pass must be
+            # recorded even on an empty doc, or permanently-dead links get
+            # re-downloaded on every read of a description-less opportunity.
+            if accounted > (doc.attachments_accounted or 0):
+                doc.attachments_accounted = accounted
+                db.commit()
+            return doc
+        if doc.sections:
+            # The document is about to change: stored citations were verified
+            # against the old build, so the analyses carrying them go too.
+            db.query(AnalysisModel).filter(
+                AnalysisModel.opportunity_id == opp.id
+            ).delete(synchronize_session=False)
         db.delete(doc)
         db.flush()
 
-    payload = ingest.build_source_document(opp)
-    doc = SourceDocumentModel(opportunity_id=opp.id, label=payload["label"])
-    db.add(doc)
-    db.flush()  # assign doc.id before attaching sections
+    payload = ingest.build_source_document(opp, attachments=blobs)
+    # The INSERT executes at flush, not commit — the unique-index violation
+    # from a concurrent builder raises there, so the whole insert lives
+    # inside the try.
+    try:
+        doc = SourceDocumentModel(
+            opportunity_id=opp.id,
+            label=payload["label"],
+            attachments_ingested=len(blobs),
+            attachments_accounted=accounted,
+            has_description=bool(description),
+        )
+        db.add(doc)
+        db.flush()  # assign doc.id before attaching sections
 
-    for position, sec in enumerate(payload["sections"]):
-        db.add(
-            SourceSectionModel(
-                document_id=doc.id,
-                ref=sec["ref"],
-                heading=sec["heading"],
-                text=sec["text"],  # canonical — stored exactly as sliced
-                page=sec["page"],
-                position=position,
+        for position, sec in enumerate(payload["sections"]):
+            db.add(
+                SourceSectionModel(
+                    document_id=doc.id,
+                    ref=sec["ref"],
+                    heading=sec["heading"],
+                    text=sec["text"],  # canonical — stored exactly as sliced
+                    page=sec["page"],
+                    position=position,
+                )
+            )
+        db.commit()
+    except IntegrityError:
+        # A concurrent builder (detail-view prewarm vs a document GET) won the
+        # unique-index race. Their document is as good as ours — serve it.
+        # Rolling back also undoes our analyses-delete, which was never valid
+        # for the winner's build.
+        db.rollback()
+        return db.scalar(
+            select(SourceDocumentModel).where(
+                SourceDocumentModel.opportunity_id == opp.id
             )
         )
-    db.commit()
     db.refresh(doc)
     return doc
 

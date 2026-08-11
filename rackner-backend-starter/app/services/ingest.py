@@ -346,7 +346,13 @@ def build_source_document(opportunity, attachments: list[bytes] | None = None) -
     description = canonicalize(description)
     parts = [description] if description.strip() else []
     for blob in attachments or []:
-        text = load_text(blob)
+        # A corrupt download (PDF magic, garbage body) must degrade to a
+        # skipped attachment — never a 500 on every document view.
+        try:
+            text = load_text(blob)
+        except Exception as exc:
+            log.warning("attachment could not be parsed, skipped: %s", exc)
+            continue
         if text.strip():
             parts.append(text)
 

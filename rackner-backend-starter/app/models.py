@@ -111,6 +111,10 @@ class Opportunity(Base):
     # `months_to_expiry` is derived from expiry_date at serialization.
     expiry_date: Mapped[date | None] = mapped_column(Date, index=True)
     current_award_value: Mapped[float | None] = mapped_column(Numeric)
+    # SAM.gov attachment download URLs (resourceLinks) — the full solicitation
+    # package lives behind these, not in the description. Captured at search
+    # time so fetching them later costs no extra notice lookup.
+    resource_links: Mapped[list | None] = mapped_column(JSON)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
@@ -191,6 +195,18 @@ class SourceDocument(Base):
         ForeignKey("opportunities.id", ondelete="CASCADE"), index=True
     )
     label: Mapped[str] = mapped_column(String(1000), default="")
+    # Build bookkeeping. `attachments_ingested` = blobs in THIS build (drives
+    # the grew-so-invalidate decision). `attachments_accounted` = links
+    # RESOLVED — fetched or permanently unfetchable (404, unsupported format);
+    # a quota-stopped pass leaves it low so a later request retries, while a
+    # completed pass raises it to len(links) so dead links are never
+    # re-attempted on every read. `has_description` records whether the build
+    # included the notice description, which can arrive AFTER the first build.
+    # Any rebuild of a non-empty document deletes dependent analyses, so
+    # stored citations can never point at text that changed underneath.
+    attachments_ingested: Mapped[int] = mapped_column(Integer, default=0)
+    attachments_accounted: Mapped[int] = mapped_column(Integer, default=0)
+    has_description: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )

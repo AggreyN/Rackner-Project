@@ -38,6 +38,7 @@ from app.llm import gateway
 from app.models import Analysis as AnalysisModel
 from app.models import LifecycleProfile as LifecycleProfileModel
 from app.models import Opportunity, User
+from app.models import SourceDocument as SourceDocumentModel
 from app.routes.documents import get_or_build_document
 from app.schemas import Analysis, Obligation
 
@@ -179,6 +180,11 @@ def ensure_analysis(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
 
 def _generate_and_store(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
     doc = get_or_build_document(db, opp)
+    had_sections = bool(doc.sections)
+    # Identity of the build this analysis grounds against. id alone is not
+    # enough — SQLite reuses rowids after delete+insert — but a rebuilt row
+    # always carries a new created_at.
+    build_identity = (doc.id, doc.created_at)
     result = gateway.analyze(
         _opportunity_dict(opp), _lifecycle_dict(db, user), doc.sections
     )
@@ -197,7 +203,27 @@ def _generate_and_store(db: Session, opp: Opportunity, user: User) -> AnalysisMo
     # construction; caching it would freeze that empty result even after the
     # description arrives and the document rebuilds. Returned transient, it is
     # regenerated on each request until grounding exists, then cached.
-    if doc.sections:
+    if had_sections:
+        # The model call took seconds; the grounding document may have been
+        # rebuilt underneath us in that window (attachments arriving on a
+        # concurrent request replace the document row). Persisting an analysis
+        # generated against the OLD build would break the invariant that
+        # grounding text never changes under a stored citation — so persist
+        # only if the CURRENT build (fresh transaction) is still the one we
+        # generated against.
+        db.commit()  # end our read transaction so the re-check sees current state
+        current = db.scalar(
+            select(SourceDocumentModel).where(
+                SourceDocumentModel.opportunity_id == opp.id
+            )
+        )
+        if current is None or (current.id, current.created_at) != build_identity:
+            log.info(
+                "analysis for %s served transient: the grounding document "
+                "was rebuilt mid-generation",
+                opp.id,
+            )
+            return row
         db.add(row)
         db.commit()
         db.refresh(row)

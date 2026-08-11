@@ -78,6 +78,14 @@ ANALYSIS_PREWARM = os.getenv("ANALYSIS_PREWARM", "true").lower() == "true"
 # SAM.gov Get Opportunities (data.gov key). Unset → those routes 503 cleanly.
 SAM_GOV_API_KEY = get_secret("SAM_GOV_API_KEY", "")
 
+# Full-document ingestion: a notice's attachments (resourceLinks) are fetched
+# on the document-build path so analysis/chat ground against the whole
+# solicitation package, not just the description. Each file download bills the
+# SAM key once, ever (build-once caching). Caps bound cost and memory.
+SAM_MAX_ATTACHMENTS = int(os.getenv("SAM_MAX_ATTACHMENTS", "8"))
+SAM_ATTACHMENT_MAX_MB = int(os.getenv("SAM_ATTACHMENT_MAX_MB", "25"))
+SAM_ATTACHMENTS_TOTAL_MB = int(os.getenv("SAM_ATTACHMENTS_TOTAL_MB", "60"))
+
 # --- OCR for scanned/image-only PDFs: "off" (default) or "textract" ---
 # Two of the five committed sample solicitations are image-only and extract to
 # nothing without this. "textract" renders text-less pages locally (PyMuPDF)

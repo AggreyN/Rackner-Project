@@ -101,6 +101,10 @@ def _cache(db: Session, summaries: list[dict]) -> None:
         # previous detail fetch already stored.
         if s.get("description"):
             row.description = s["description"]
+        # Same guard for attachment links: cached-row fallbacks don't carry the
+        # key, and blanking links would orphan an already-built full document.
+        if s.get("_resource_links"):
+            row.resource_links = s["_resource_links"]
     db.commit()
 
 

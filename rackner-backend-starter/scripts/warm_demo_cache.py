@@ -95,8 +95,11 @@ def main() -> int:
     warmed = []
     for row in ranked[: args.details]:
         oid = row["id"]
-        if not sam_dead and sam_spent + 2 <= args.sam_budget:
-            sam_spent += 2  # detail = notice lookup + description fetch
+        # detail = notice lookup + description fetch; the document build then
+        # downloads the notice's attachments server-side (~1 call each, capped
+        # at 8). 4 is a conservative average for budgeting.
+        if not sam_dead and sam_spent + 4 <= args.sam_budget:
+            sam_spent += 4
         elif not sam_dead:
             print(f"  {oid[:12]}: skipped (SAM budget)")
             continue

@@ -96,5 +96,40 @@ def get_json(url: str, *, service: str, params=None, timeout=DEFAULT_TIMEOUT) ->
     return _call("GET", url, service=service, params=params, timeout=timeout)
 
 
+def get_bytes(
+    url: str,
+    *,
+    service: str,
+    params=None,
+    timeout=DEFAULT_TIMEOUT,
+    max_bytes: int,
+) -> bytes:
+    """Download a file, streamed, with a hard size cap.
+
+    Single attempt, no retry: callers fetch attachments in a loop and degrade
+    per-file, so a retry here would just multiply a dead endpoint's latency.
+    The cap aborts mid-stream — a 500 MB upload can't exhaust task memory.
+    """
+    try:
+        with requests.get(url, params=params, timeout=timeout, stream=True) as response:
+            if not response.ok:
+                detail = f"HTTP {response.status_code}"
+                if response.status_code == 429:
+                    detail += " (rate limited — the API key's request quota is spent)"
+                raise UpstreamError(service, detail)
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_content(chunk_size=65536):
+                total += len(chunk)
+                if total > max_bytes:
+                    raise UpstreamError(
+                        service, f"file exceeds the {max_bytes // (1024 * 1024)} MB cap"
+                    )
+                chunks.append(chunk)
+            return b"".join(chunks)
+    except requests.RequestException as exc:
+        raise UpstreamError(service, str(exc)) from exc
+
+
 def post_json(url: str, *, service: str, json=None, timeout=DEFAULT_TIMEOUT) -> dict:
     return _call("POST", url, service=service, json=json, timeout=timeout)
