@@ -37,9 +37,20 @@ def _client():
         with _client_lock:
             if _client_cached is None:
                 import boto3
+                from botocore.config import Config as BotoConfig
 
                 _client_cached = boto3.client(
-                    "bedrock-runtime", region_name=config.AWS_REGION
+                    "bedrock-runtime",
+                    region_name=config.AWS_REGION,
+                    config=BotoConfig(
+                        # Parallel extraction bursts 8-wide; adaptive mode
+                        # rate-limits client-side on throttles instead of
+                        # failing sections. Dense clause sections produce
+                        # big outputs — allow slow reads.
+                        retries={"max_attempts": 6, "mode": "adaptive"},
+                        read_timeout=120,
+                        connect_timeout=5,
+                    ),
                 )
     return _client_cached
 

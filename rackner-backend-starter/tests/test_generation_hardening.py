@@ -97,7 +97,10 @@ def test_parallel_output_is_identical_to_sequential(monkeypatch):
     ]
 
 
-def test_one_failing_section_fails_the_extraction_same_as_sequential(monkeypatch):
+def test_persistently_failing_section_is_skipped_not_fatal(monkeypatch):
+    """Measured in prod: all-or-nothing at 60 sections meant one throttled
+    call vaporized the whole run. A section that fails its retry is skipped
+    with a warning; everything else survives."""
     monkeypatch.setattr(config, "LLM_MODE", "bedrock")
     monkeypatch.setattr(config, "LLM_EXTRACT_CONCURRENCY", 4)
 
@@ -107,8 +110,42 @@ def test_one_failing_section_fails_the_extraction_same_as_sequential(monkeypatch
         return _raw_for(text)
 
     monkeypatch.setattr(gateway, "_raw_obligations_for", flaky)
+    out = gateway.extract_obligations(_sections(5))
+    assert len(out) == 4, "the other four sections must survive"
+    assert "C.3" not in {o["citation"]["section"] for o in out}
+
+
+def test_transient_failure_recovers_on_the_serial_retry(monkeypatch):
+    monkeypatch.setattr(config, "LLM_MODE", "bedrock")
+    monkeypatch.setattr(config, "LLM_EXTRACT_CONCURRENCY", 4)
+
+    attempts = {"n": 0}
+
+    def throttled_once(text):
+        if "task 2" in text:
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("ThrottlingException")
+        return _raw_for(text)
+
+    monkeypatch.setattr(gateway, "_raw_obligations_for", throttled_once)
+    out = gateway.extract_obligations(_sections(4))
+    assert len(out) == 4, "the retried section must be recovered"
+    assert [o["id"] for o in out] == [1, 2, 3, 4], "ids stay stable after retry"
+
+
+def test_total_outage_still_raises(monkeypatch):
+    """Every section failing means Bedrock is down — raising beats persisting
+    a frozen, empty analysis."""
+    monkeypatch.setattr(config, "LLM_MODE", "bedrock")
+    monkeypatch.setattr(config, "LLM_EXTRACT_CONCURRENCY", 4)
+
+    def dead(text):
+        raise RuntimeError("service unavailable")
+
+    monkeypatch.setattr(gateway, "_raw_obligations_for", dead)
     with pytest.raises(RuntimeError):
-        gateway.extract_obligations(_sections(5))
+        gateway.extract_obligations(_sections(3))
 
 
 # --- fix 2: stampede guard --------------------------------------------------------

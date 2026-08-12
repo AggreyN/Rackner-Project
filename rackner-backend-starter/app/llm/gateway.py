@@ -150,18 +150,7 @@ def extract_obligations(sections: list) -> list[dict]:
     # race, even if today's attribute access happens to be a cached read).
     texts = [(_section_field(s, "text", "") or "") for s in worked]
     workers = min(config.LLM_EXTRACT_CONCURRENCY, len(worked)) or 1
-    if config.LLM_MODE == "bedrock" and workers > 1:
-        from concurrent.futures import ThreadPoolExecutor
-
-        # The bedrock client is a single shared instance built under a lock
-        # (clients are thread-safe; racing their CREATION is not). pool.map
-        # preserves input order and raises the first failure — note that
-        # already-submitted sections still run to completion behind that
-        # failure, a bounded Bedrock cost we accept for the wall-clock win.
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            raw_lists = list(pool.map(_raw_obligations_for, texts))
-    else:
-        raw_lists = [_raw_obligations_for(t) for t in texts]
+    raw_lists = _extract_raw_lists(texts, workers)
 
     obligations: list[dict] = []
     next_id = 1
@@ -172,6 +161,54 @@ def extract_obligations(sections: list) -> list[dict]:
             )
             next_id += 1
     return obligations
+
+
+def _extract_raw_lists(texts: list[str], workers: int) -> list[list[dict]]:
+    """Run per-section extraction, degrading per SECTION, not per run.
+
+    All-or-nothing at 60 sections was measured fatal in prod: one throttled
+    call vaporized the whole multi-minute run, every retry re-failed the
+    same way, and nothing ever cached. Instead: fan out (bedrock mode),
+    retry each failed section once serially (throttles recover given a
+    beat), then SKIP stragglers with a warning — fewer obligations beats no
+    analysis, the same trade OCR already makes. If every section failed,
+    raise: persisting an empty result would freeze it.
+    """
+    log = logging.getLogger(__name__)
+
+    def safe(text: str):
+        try:
+            return _raw_obligations_for(text)
+        except Exception as exc:  # noqa: BLE001 — degrade per section
+            return exc
+
+    if config.LLM_MODE == "bedrock" and workers > 1 and len(texts) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        # The bedrock client is a single shared instance built under a lock
+        # (clients are thread-safe; racing their CREATION is not). pool.map
+        # preserves input order.
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(safe, texts))
+    else:
+        results = [safe(t) for t in texts]
+
+    failures = [i for i, r in enumerate(results) if isinstance(r, Exception)]
+    for i in failures:
+        results[i] = safe(texts[i])  # one serial retry per failed section
+
+    still_failed = [i for i, r in enumerate(results) if isinstance(r, Exception)]
+    if still_failed and len(still_failed) == len(texts):
+        raise results[still_failed[0]]  # total outage — nothing to ground
+    for i in still_failed:
+        log.warning(
+            "extraction skipped section %d of %d after retry: %s",
+            i + 1,
+            len(texts),
+            results[i],
+        )
+        results[i] = []
+    return results
 
 
 def _normalize_factor(raw: dict) -> dict | None:
