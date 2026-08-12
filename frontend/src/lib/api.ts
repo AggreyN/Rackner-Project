@@ -130,9 +130,18 @@ export async function getOpportunity(id: string): Promise<OpportunitySummary> {
 
 export async function getAnalysis(id: string): Promise<Analysis> {
   if (USE_MOCK) return mock.getAnalysis(id);
-  return json(
-    await fetch(`${BASE}/opportunities/${encodeURIComponent(id)}/analysis`, { headers: headers() })
-  );
+  // First-time generation on a big document runs server-side for a while;
+  // the backend answers 503 + Retry-After until the cached row exists.
+  // Poll through those so the caller's loading state simply persists —
+  // the user sees the skeleton, not an error, and lands on the analysis.
+  const url = `${BASE}/opportunities/${encodeURIComponent(id)}/analysis`;
+  const deadline = Date.now() + 5 * 60 * 1000;
+  for (;;) {
+    const res = await fetch(url, { headers: headers() });
+    if (res.status !== 503 || Date.now() >= deadline) return json(res);
+    const retryAfter = Number(res.headers.get("retry-after")) || 15;
+    await new Promise((r) => setTimeout(r, retryAfter * 1000));
+  }
 }
 
 export async function getSourceDocument(id: string): Promise<SourceDocument> {
