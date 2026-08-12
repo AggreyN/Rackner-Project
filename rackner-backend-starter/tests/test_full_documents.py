@@ -373,6 +373,77 @@ def test_losing_a_concurrent_build_race_serves_the_winner_not_a_500(
     assert r.json()["label"] == "the winner"
 
 
+def test_backfilled_false_flag_causes_pointless_rebuild_and_0005_repairs_it(
+    client, auth_headers, monkeypatch
+):
+    """Migration 0003 backfilled has_description=false onto documents that
+    WERE built from descriptions. Unrepaired, the first read rebuilds them
+    for nothing — new row, cached analyses deleted. Migration 0005's UPDATE
+    must prevent exactly that."""
+    from sqlalchemy import text as sql_text
+
+    opp_id = "FULLDOC-BACKFILL"
+    db = SessionLocal()
+    try:
+        row = db.get(Opportunity, opp_id) or Opportunity(
+            id=opp_id, title="Backfill victim", agency="DoD"
+        )
+        db.add(row)
+        row.description = "The Contractor shall keep its cached analysis."
+        row.resource_links = None
+        for doc in db.query(SourceDocument).filter_by(opportunity_id=opp_id):
+            db.delete(doc)
+        db.query(Analysis).filter_by(opportunity_id=opp_id).delete()
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(attachments, "fetch_all", lambda links: ([], True))
+    client.get(f"/opportunities/{opp_id}/document", headers=auth_headers)
+    doc_id, _, _ = _doc_row(opp_id)
+    _add_analysis(opp_id)
+
+    # Simulate the 0003 backfill state, then run 0005's repair (same SQL).
+    db = SessionLocal()
+    try:
+        db.execute(
+            sql_text(
+                "UPDATE source_documents SET has_description = FALSE "
+                "WHERE opportunity_id = :o"
+            ),
+            {"o": opp_id},
+        )
+        db.commit()
+        db.execute(
+            sql_text(
+                """
+                UPDATE source_documents
+                SET has_description = TRUE
+                WHERE id IN (
+                    SELECT d.id
+                    FROM source_documents AS d
+                    JOIN opportunities AS o ON o.id = d.opportunity_id
+                    WHERE o.description IS NOT NULL
+                      AND o.description != ''
+                      AND EXISTS (
+                          SELECT 1 FROM source_sections s
+                          WHERE s.document_id = d.id
+                      )
+                )
+                """
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get(f"/opportunities/{opp_id}/document", headers=auth_headers)
+    assert r.status_code == 200
+    doc_id_after, _, _ = _doc_row(opp_id)
+    assert doc_id_after == doc_id, "repaired flag must prevent the rebuild"
+    assert _analysis_count(opp_id) == 1, "cached analysis must survive"
+
+
 # --- the fetcher itself --------------------------------------------------------
 
 

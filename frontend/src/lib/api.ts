@@ -134,11 +134,15 @@ export async function getAnalysis(id: string): Promise<Analysis> {
   // the backend answers 503 + Retry-After until the cached row exists.
   // Poll through those so the caller's loading state simply persists —
   // the user sees the skeleton, not an error, and lands on the analysis.
+  // 503 = backend says "generating, come back" (Retry-After); 504 = the load
+  // balancer gave up on the request that is DOING the generating — the server
+  // keeps working either way, so both mean "poll, don't error".
   const url = `${BASE}/opportunities/${encodeURIComponent(id)}/analysis`;
   const deadline = Date.now() + 5 * 60 * 1000;
   for (;;) {
     const res = await fetch(url, { headers: headers() });
-    if (res.status !== 503 || Date.now() >= deadline) return json(res);
+    const generating = res.status === 503 || res.status === 504;
+    if (!generating || Date.now() >= deadline) return json(res);
     const retryAfter = Number(res.headers.get("retry-after")) || 15;
     await new Promise((r) => setTimeout(r, retryAfter * 1000));
   }
