@@ -30,6 +30,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import config
@@ -158,14 +159,21 @@ def ensure_analysis(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
     if not _acquire(user.id, opp.id):
         # Someone else (a pre-warm, or another request) is generating this
         # exact analysis. Wait for their row instead of paying for the same
-        # model call twice; on timeout, take over and generate ourselves.
-        row = _wait_for_inflight(db, opp.id, user.id)
+        # model call twice.
+        row = _wait_for_inflight(db, opp.id, user.id, timeout_s=45.0)
         if row is not None:
             return row
         if not _acquire(user.id, opp.id):
-            # Still held after the timeout — generate unguarded rather than
-            # fail the request. Worst case is one duplicate call.
-            return _generate_and_store(db, opp, user)
+            # Still generating after the wait. The old fallback started a
+            # duplicate multi-minute model run here — under a big document,
+            # stacked retries wedged the prod task for ~10 minutes (measured
+            # 2026-08-11). Tell the client to come back for the cached row
+            # instead; the holder's run is still making progress.
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "This analysis is still being generated. Retry in a moment.",
+                headers={"Retry-After": "20"},
+            )
 
     try:
         # Re-check inside the guard: the previous holder may have landed a row
@@ -224,8 +232,14 @@ def _generate_and_store(db: Session, opp: Opportunity, user: User) -> AnalysisMo
                 opp.id,
             )
             return row
-        db.add(row)
-        db.commit()
+        try:
+            db.add(row)
+            db.commit()
+        except IntegrityError:
+            # A concurrent generation persisted first (unique index on
+            # opportunity+user). Serve theirs — same document, same inputs.
+            db.rollback()
+            return _cached_analysis(db, opp.id, user.id) or row
         db.refresh(row)
     return row
 

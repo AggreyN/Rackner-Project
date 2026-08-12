@@ -62,6 +62,12 @@ BEDROCK_MODEL_ID = os.getenv(
 )
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
+# Per-section extraction calls run concurrently in bedrock mode. Sequential, a
+# 60-section package took minutes and outlived the load balancer; at 8-wide it
+# fits in one request. Bounded so one giant document can't monopolize Bedrock
+# RPM. Set to 1 to restore sequential behavior.
+LLM_EXTRACT_CONCURRENCY = int(os.getenv("LLM_EXTRACT_CONCURRENCY", "8"))
+
 # Bedrock extraction runs one model call PER SECTION. A 638-page document
 # sections into ~550 — one stray click must not buy 550 model calls. Sections
 # beyond the cap are skipped WITH A LOG LINE (no silent truncation); raise the

@@ -148,7 +148,7 @@ def split_sections(raw: str) -> list[dict]:
 
     matches = list(_HEADING_RE.finditer(raw))
     if not matches:
-        return _split_by_page(raw)
+        return _dedupe_refs(_split_by_page(raw))
 
     sections: list[dict] = []
 
@@ -174,6 +174,26 @@ def split_sections(raw: str) -> list[dict]:
                 "page": _page_for_offset(raw, start),
             }
         )
+    return _dedupe_refs(sections)
+
+
+def _dedupe_refs(sections: list[dict]) -> list[dict]:
+    """Make refs unique: 52.212-4, 52.212-4 #2, 52.212-4 #3, ...
+
+    Real solicitation packages repeat clause numbers (base clause + alternates
+    + fill-ins). Citations, chat-citation validation, and the UI's
+    jump-to-section all look sections up BY ref — a duplicate ref makes a
+    verified quote un-highlightable because the lookup lands on the wrong
+    instance. Only the text is quoted, so suffixing the ref changes no
+    grounding byte.
+    """
+    seen: dict[str, int] = {}
+    for section in sections:
+        ref = section["ref"]
+        n = seen.get(ref, 0) + 1
+        seen[ref] = n
+        if n > 1:
+            section["ref"] = f"{ref} #{n}"
     return sections
 
 

@@ -16,15 +16,32 @@ See docs/LLM_GATEWAY.md.
 
 import json
 import logging
+import threading
 
 from app import config
 
+_client_lock = threading.Lock()
+_client_cached = None
+
 
 def _client():
-    # Imported here (not at module top) so mock mode never touches boto3/AWS.
-    import boto3
+    """One shared bedrock-runtime client, built under a lock.
 
-    return boto3.client("bedrock-runtime", region_name=config.AWS_REGION)
+    Clients are thread-safe to SHARE; boto3's default-Session setup and
+    create_client are NOT thread-safe to RACE — parallel extraction's first
+    cold-start fan-out would hit exactly that. Imported lazily so mock mode
+    never touches boto3/AWS.
+    """
+    global _client_cached
+    if _client_cached is None:
+        with _client_lock:
+            if _client_cached is None:
+                import boto3
+
+                _client_cached = boto3.client(
+                    "bedrock-runtime", region_name=config.AWS_REGION
+                )
+    return _client_cached
 
 
 def invoke(system: str, user_prompt: str, max_tokens: int | None = None) -> str:

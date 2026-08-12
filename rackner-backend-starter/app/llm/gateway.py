@@ -123,9 +123,14 @@ def extract_obligations(sections: list) -> list[dict]:
     """Extract obligations from each section, cited and verified against it.
 
     Unverified quotes are kept with verified=False — never dropped.
+
+    In bedrock mode the per-section model calls run CONCURRENTLY, bounded by
+    LLM_EXTRACT_CONCURRENCY. Sequential, a 60-section package took minutes
+    and outlived every load-balancer timeout (measured in prod); 8-wide it
+    fits inside one request. Results are assembled in section order after all
+    calls return, so the output — ids included — is identical to what the
+    sequential path produced.
     """
-    obligations: list[dict] = []
-    next_id = 1
     sections = list(sections or [])
     # Cost guard for bedrock mode: one model call per section. Never silent —
     # the log says exactly what was skipped (ground rule: no silent caps).
@@ -136,11 +141,32 @@ def extract_obligations(sections: list) -> list[dict]:
             len(sections),
         )
         sections = sections[: config.LLM_MAX_EXTRACT_SECTIONS]
-    for section in sections:
-        text = _section_field(section, "text", "") or ""
-        if not text.strip():
-            continue
-        for raw in _raw_obligations_for(text):
+
+    worked = [
+        s for s in sections if (_section_field(s, "text", "") or "").strip()
+    ]
+    # Extract plain strings BEFORE the fan-out: worker threads must never
+    # touch ORM rows (a lazy-load on a shared Session from 8 threads is a
+    # race, even if today's attribute access happens to be a cached read).
+    texts = [(_section_field(s, "text", "") or "") for s in worked]
+    workers = min(config.LLM_EXTRACT_CONCURRENCY, len(worked)) or 1
+    if config.LLM_MODE == "bedrock" and workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        # The bedrock client is a single shared instance built under a lock
+        # (clients are thread-safe; racing their CREATION is not). pool.map
+        # preserves input order and raises the first failure — note that
+        # already-submitted sections still run to completion behind that
+        # failure, a bounded Bedrock cost we accept for the wall-clock win.
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            raw_lists = list(pool.map(_raw_obligations_for, texts))
+    else:
+        raw_lists = [_raw_obligations_for(t) for t in texts]
+
+    obligations: list[dict] = []
+    next_id = 1
+    for section, raws in zip(worked, raw_lists):
+        for raw in raws:
             obligations.append(
                 _normalize_obligation(raw, ob_id=next_id, section=section)
             )

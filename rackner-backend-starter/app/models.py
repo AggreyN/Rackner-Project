@@ -18,6 +18,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     Numeric,
@@ -134,6 +135,17 @@ class Analysis(Base):
     """Kaliza's LLM output for one opportunity + user. factors/obligations are JSON."""
 
     __tablename__ = "analyses"
+    # Parity with migration 0004 — the IntegrityError-serve-the-winner path
+    # in routes/analysis.py depends on this existing wherever the schema
+    # came from (alembic or metadata.create_all).
+    __table_args__ = (
+        Index(
+            "uq_analyses_opportunity_user",
+            "opportunity_id",
+            "user_id",
+            unique=True,
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     opportunity_id: Mapped[str] = mapped_column(
@@ -189,6 +201,16 @@ class SourceDocument(Base):
     """
 
     __tablename__ = "source_documents"
+    # Parity with migration 0003 — one grounding document per opportunity,
+    # relied on by the losing-builder-serves-the-winner path in
+    # routes/documents.py.
+    __table_args__ = (
+        Index(
+            "uq_source_documents_opportunity_id",
+            "opportunity_id",
+            unique=True,
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     opportunity_id: Mapped[str] = mapped_column(
