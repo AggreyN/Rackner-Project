@@ -997,65 +997,70 @@ const PCTE_QUOTES = {
 } as const;
 
 function buildPcteDocument(): SourceDocument {
-  const filler = (ref: string, topic: string): string => {
-    // ~1.9K chars of deterministic, section-unique prose (no randomness —
-    // quotes and tests need byte-stable text).
-    const base =
-      `${ref} ${topic}. The Contractor shall provide all personnel, equipment, tools, ` +
-      `materials, supervision, and other items and non-personal services necessary to ` +
-      `perform ${topic.toLowerCase()} as defined in this Performance Work Statement ` +
-      `except as specified as Government-furnished property and services. Performance ` +
-      `shall meet or exceed the standards in the Performance Requirements Summary. `;
-    return base + `The Government will assess performance in accordance with the QASP. `.repeat(18);
-  };
+  // Mirrors app/services/ingest.py::split_sections output: heading-to-heading
+  // verbatim slices, so sizes are UNEVEN and unbounded. Ref formats match the
+  // backend's _HEADING_RE groups — section letters, dotted paragraphs, FAR/
+  // DFARS clause ids (with "#2" dedupe suffixes), "0" for the preamble, and
+  // "pN" page fallbacks. Byte-stable: no randomness, so quotes stay exact.
+  const prose = (topic: string, reps: number): string =>
+    `The Contractor shall provide all personnel, equipment, tools, materials, ` +
+    `supervision, and other items and non-personal services necessary to perform ` +
+    `${topic} except as specified as Government-furnished. Performance shall meet ` +
+    `or exceed the Performance Requirements Summary. `.repeat(reps);
 
   const sections: SourceDocument["sections"] = [];
-  // Anchored sections — obligations and chat citations ground into these.
-  sections.push({
-    ref: "C.3.4",
-    heading: "C.3.4 — RANGE OPERATIONS & AVAILABILITY",
-    page: 12,
-    text: `C.3.4 Range Operations. ${PCTE_QUOTES.range} Scheduled maintenance windows shall be coordinated no fewer than 14 days in advance and documented in the range operations log.`,
-  });
-  // PWS body: C.4.1 … C.4.60
-  for (let i = 1; i <= 60; i++) {
-    sections.push({
-      ref: `C.4.${i}`,
-      heading: `C.4.${i} — PWS TASK AREA ${i}`,
-      page: 13 + Math.floor(i / 3),
-      text: filler(`C.4.${i}`, `Task Area ${i} support services`),
-    });
+  const add = (ref: string, heading: string, page: number, text: string) =>
+    sections.push({ ref, heading, page, text });
+
+  add("0", "Preamble", 1, prose("the preamble administrative matter", 2));
+  add("A", "SOLICITATION / CONTRACT FORM", 2, prose("contract form administration", 3));
+  add("B", "SUPPLIES OR SERVICES AND PRICES", 3, prose("CLIN pricing structure", 40));
+
+  // A deliberately enormous PWS section — the shape a few-heading package
+  // produces, and the case a count-only threshold would miss.
+  add("C", "DESCRIPTION / SPECIFICATIONS / WORK STATEMENT", 5, prose("the full performance work statement", 300));
+  add(
+    "C.3.4",
+    "C.3.4 — RANGE OPERATIONS & AVAILABILITY",
+    12,
+    `C.3.4 Range Operations. ${PCTE_QUOTES.range} Scheduled maintenance windows shall be ` +
+      `coordinated no fewer than 14 days in advance and documented in the range operations log.`
+  );
+
+  // Many small dotted paragraphs — the other real shape.
+  for (let i = 1; i <= 55; i++) {
+    add(`C.4.${i}`, `C.4.${i} — PWS Task Area ${i}`, 13 + Math.floor(i / 3), prose(`task area ${i} support`, 3 + (i % 7)));
   }
-  // Attachments/CDRLs: F.3.1 … F.3.40
-  for (let i = 1; i <= 40; i++) {
-    sections.push({
-      ref: `F.3.${i}`,
-      heading: `F.3.${i} — CDRL A0${String(i).padStart(2, "0")}`,
-      page: 40 + Math.floor(i / 4),
-      text: filler(`F.3.${i}`, `Data deliverable A0${String(i).padStart(2, "0")}`),
-    });
+
+  // Repeated clause ids: the backend dedupes to "52.212-4 #2", "#3".
+  add("52.212-4", "Contract Terms and Conditions — Commercial Items", 60, prose("commercial item terms", 12));
+  add("52.212-4 #2", "Contract Terms and Conditions — Alternate I", 61, prose("alternate I terms", 8));
+  add("52.212-4 #3", "Contract Terms and Conditions — Fill-ins", 62, prose("clause fill-ins", 4));
+  add("252.204-7012", "Safeguarding Covered Defense Information", 63, prose("safeguarding requirements", 30));
+
+  // CDRLs.
+  for (let i = 1; i <= 35; i++) {
+    add(`F.3.${i}`, `F.3.${i} — CDRL A0${String(i).padStart(2, "0")}`, 70 + Math.floor(i / 4), prose(`data deliverable A0${String(i).padStart(2, "0")}`, 2 + (i % 4)));
   }
-  sections.push({
-    ref: "L.2",
-    heading: "L.2 — SUBMISSION INSTRUCTIONS",
-    page: 88,
-    text: `L.2 Submission. ${PCTE_QUOTES.submit} Late offers will not be considered. Volumes exceeding stated page limits will not be evaluated.`,
-  });
-  sections.push({
-    ref: "M.6",
-    heading: "M.6 — CERTIFICATION REQUIREMENTS",
-    page: 96,
-    text: `M.6 Certifications. ${PCTE_QUOTES.cmmc} Certification status will be verified in SPRS prior to award.`,
-  });
-  // 3 anchored + 60 + 40 = 103; pad to 106 with H clauses.
-  for (let i = 1; i <= 3; i++) {
-    sections.push({
-      ref: `H.${i}`,
-      heading: `H.${i} — SPECIAL CONTRACT REQUIREMENT ${i}`,
-      page: 70 + i,
-      text: filler(`H.${i}`, `Special contract requirement ${i}`),
-    });
+
+  add(
+    "L.2",
+    "L.2 — SUBMISSION INSTRUCTIONS",
+    88,
+    `L.2 Submission. ${PCTE_QUOTES.submit} Late offers will not be considered. Volumes exceeding stated page limits will not be evaluated.`
+  );
+  add(
+    "M.6",
+    "M.6 — CERTIFICATION REQUIREMENTS",
+    96,
+    `M.6 Certifications. ${PCTE_QUOTES.cmmc} Certification status will be verified in SPRS prior to award.`
+  );
+
+  // Page fallbacks: an unheaded attachment tail.
+  for (let i = 1; i <= 6; i++) {
+    add(`p${100 + i}`, "", 100 + i, prose(`attachment ${i} matter`, 5));
   }
+
   return {
     opportunity_id: "navy-pcte-0118",
     label: "Source solicitation · N00178-26-R-0118 (full package)",
@@ -1063,7 +1068,33 @@ function buildPcteDocument(): SourceDocument {
   };
 }
 
+/** The shape a count-only threshold would miss: few headings, huge slices. */
+function buildFewHugeDocument(): SourceDocument {
+  const filler = "The Contractor shall perform all requirements herein in accordance with the Statement of Work. ".repeat(600);
+  return {
+    opportunity_id: "af-devsecops-0107",
+    label: "Source solicitation · FA8771-26-R-0107 (few-section package)",
+    sections: [
+      { ref: "C", heading: "DESCRIPTION / SPECIFICATIONS", page: 3, text: filler },
+      {
+        ref: "C.4",
+        heading: "C.4 — PIPELINE MODERNIZATION",
+        page: 5,
+        text: "C.4 Pipeline Modernization. The Contractor shall achieve initial operating capability of the modernized pipeline within 90 days of award. " + filler,
+      },
+      { ref: "H.3", heading: "H.3 — SPECIAL REQUIREMENTS", page: 7, text: filler },
+      {
+        ref: "L.1",
+        heading: "L.1 — INSTRUCTIONS",
+        page: 8,
+        text: "L.1 Submission. Proposals shall be submitted electronically no later than 5:00 PM CT on 21 August 2026. " + filler,
+      },
+    ],
+  };
+}
+
 DOCUMENTS["navy-pcte-0118"] = buildPcteDocument();
+DOCUMENTS["af-devsecops-0107"] = buildFewHugeDocument();
 
 export async function getSourceDocument(id: string): Promise<SourceDocument> {
   const d = DOCUMENTS[id];

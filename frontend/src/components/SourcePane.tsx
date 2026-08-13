@@ -6,17 +6,28 @@
 // guarantees verbatim quotes are exact substrings of section text, so
 // highlighting is a plain string match — no fuzzy logic to go wrong.
 //
-// Big-package mode: full solicitation packages now arrive with 100+
-// sections (~200K chars). Above LARGE_DOC_SECTIONS the pane switches to a
-// jump-list TOC + collapsed-by-default sections, so only opened section
-// bodies are in the DOM — scrolling stays smooth on a projector laptop.
-// Small documents render fully expanded, exactly as before.
+// SCALE NOTES — matched to app/services/ingest.py::split_sections:
+//   · Sections are heading-to-heading slices of the whole document, so their
+//     size is UNBOUNDED. A package with few headings yields a handful of
+//     enormous sections; one with many yields a hundred small ones. Both
+//     shapes have to stay smooth, so large-mode triggers on section count
+//     OR total characters — never count alone.
+//   · Refs come deduped ("52.212-4 #2") and may be clause ids, section
+//     letters, dotted paras, "p88" page fallbacks, or "0" for the preamble.
+//     They can contain spaces and '#', so they are display-truncated.
+//   · Long bodies render clamped with a "show full section" affordance, so
+//     opening any single section costs a bounded amount of layout. The cited
+//     section always renders in full — the highlight must never be clipped.
 
 import { useEffect, useRef, useState } from "react";
 import type { SourceDocument } from "@/lib/types";
 import type { CiteTarget } from "./ObligationsPanel";
 
+/** Either dimension flips the pane into large-document mode. */
 const LARGE_DOC_SECTIONS = 20;
+const LARGE_DOC_CHARS = 40_000;
+/** Bodies longer than this render clamped until asked for in full. */
+const CLAMP_CHARS = 4_000;
 
 interface Props {
   doc: SourceDocument | null;
@@ -27,27 +38,35 @@ interface Props {
   onToggle: () => void;
 }
 
-/** "§L.2" → "L.2" so citations match section refs. */
+/** "§L.2" → "L.2". Backend stores refs without the sign (SCHEMA_v2) but
+ *  citations may still carry it; the dedupe suffix ("#2") is significant
+ *  and must survive. */
 function normalizeRef(section: string): string {
   return section.replace(/^§/, "").trim();
 }
 
 export default function SourcePane({ doc, unavailable, cite, collapsed, onToggle }: Props) {
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const isLarge = (doc?.sections.length ?? 0) > LARGE_DOC_SECTIONS;
 
-  // Which sections are open (large docs only — small docs are always open).
+  const sections = doc?.sections ?? [];
+  const totalChars = sections.reduce((n, s) => n + s.text.length, 0);
+  const isLarge = sections.length > LARGE_DOC_SECTIONS || totalChars > LARGE_DOC_CHARS;
+
+  // Which sections are open (large docs only) and which long bodies are
+  // showing their full text.
   const [openRefs, setOpenRefs] = useState<Set<string>>(new Set());
+  const [fullRefs, setFullRefs] = useState<Set<string>>(new Set());
 
-  // Render-phase adjustment (the React-sanctioned pattern): when a new cite
-  // arrives, force its section open BEFORE the commit, so the scroll effect
-  // below finds the body already in the DOM.
+  // Render-phase adjustment: when a new cite arrives, force its section open
+  // AND unclamped before the commit, so the scroll effect finds the body in
+  // the DOM and the quote is never outside the rendered slice.
   const [prevCite, setPrevCite] = useState<CiteTarget | null>(null);
   if (cite !== prevCite) {
     setPrevCite(cite);
     if (cite) {
       const r = normalizeRef(cite.section);
       if (!openRefs.has(r)) setOpenRefs(new Set(openRefs).add(r));
+      if (!fullRefs.has(r)) setFullRefs(new Set(fullRefs).add(r));
     }
   }
 
@@ -86,16 +105,16 @@ export default function SourcePane({ doc, unavailable, cite, collapsed, onToggle
     );
   }
 
-  const allOpen = doc ? openRefs.size >= doc.sections.length : false;
+  const allOpen = sections.length > 0 && openRefs.size >= sections.length;
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-white lg:border-l lg:border-[#d7dee6]">
       <div className="flex items-center justify-between gap-3 border-b border-[#d7dee6] px-4 py-2.5">
         <span className="truncate text-[11px] font-semibold uppercase tracking-widest text-[#51606f]">
           {doc?.label ?? "Source document"}
-          {isLarge && doc && (
+          {isLarge && (
             <span className="ml-2 font-normal normal-case tracking-normal">
-              · {doc.sections.length} sections
+              · {sections.length} sections · {Math.round(totalChars / 1000)}K chars
             </span>
           )}
         </span>
@@ -103,7 +122,7 @@ export default function SourcePane({ doc, unavailable, cite, collapsed, onToggle
           {isLarge && (
             <button
               onClick={() =>
-                setOpenRefs(allOpen ? new Set() : new Set(doc!.sections.map((s) => s.ref)))
+                setOpenRefs(allOpen ? new Set() : new Set(sections.map((s) => s.ref)))
               }
               data-testid="toggle-all-sections"
               className="text-xs text-[#16324f] underline underline-offset-2 hover:text-[#0f2438]"
@@ -148,13 +167,15 @@ export default function SourcePane({ doc, unavailable, cite, collapsed, onToggle
                   Jump to section
                 </div>
                 <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto">
-                  {doc.sections.map((s) => (
+                  {sections.map((s) => (
                     <button
                       key={s.ref}
                       onClick={() => jumpTo(s.ref)}
-                      title={s.heading}
+                      title={`${s.ref}${s.heading ? ` — ${s.heading}` : ""}`}
                       data-testid="toc-entry"
-                      className="rounded border border-[#d7dee6] bg-white px-1.5 py-0.5 text-[10.5px] text-[#16324f] hover:border-[#16324f]"
+                      // Refs can be long ("52.212-4 #2") — clamp the chip so a
+                      // wide ref can't blow out the TOC grid.
+                      className="max-w-[7.5rem] truncate rounded border border-[#d7dee6] bg-white px-1.5 py-0.5 text-[10.5px] text-[#16324f] hover:border-[#16324f]"
                     >
                       {s.ref}
                     </button>
@@ -163,9 +184,12 @@ export default function SourcePane({ doc, unavailable, cite, collapsed, onToggle
               </nav>
             )}
 
-            {doc.sections.map((s) => {
-              const active = cite && normalizeRef(cite.section) === s.ref;
+            {sections.map((s) => {
+              const active = cite !== null && normalizeRef(cite.section) === s.ref;
               const open = !isLarge || openRefs.has(s.ref);
+              const showFull = fullRefs.has(s.ref) || active;
+              const clamped = s.text.length > CLAMP_CHARS && !showFull;
+              const body = clamped ? s.text.slice(0, CLAMP_CHARS) : s.text;
               return (
                 <div
                   key={s.ref}
@@ -182,21 +206,35 @@ export default function SourcePane({ doc, unavailable, cite, collapsed, onToggle
                       className="mt-2 flex w-full items-baseline gap-2 border-b border-[#f5f7f9] py-1 text-left first:mt-0 hover:bg-[#f5f7f9]"
                     >
                       <span className="text-[#51606f]">{open ? "▾" : "▸"}</span>
-                      <span className="text-[13px] font-semibold text-[#16324f]">{s.heading}</span>
+                      <span className="min-w-0 truncate text-[13px] font-semibold text-[#16324f]">
+                        {s.heading || s.ref}
+                      </span>
                       <span className="ml-auto shrink-0 text-[11px] font-normal text-[#51606f]">
                         p.{s.page}
                       </span>
                     </button>
                   ) : (
                     <h5 className="mb-1.5 mt-4 text-[13px] font-semibold text-[#16324f] first:mt-0">
-                      {s.heading}
+                      {s.heading || s.ref}
                       <span className="ml-2 font-normal text-[#51606f]">p.{s.page}</span>
                     </h5>
                   )}
                   {open && (
-                    <p data-testid="section-body" className={isLarge ? "py-1.5" : undefined}>
-                      <SectionText text={s.text} quote={active ? cite?.quote : undefined} />
-                    </p>
+                    <>
+                      <p data-testid="section-body" className={isLarge ? "py-1.5" : undefined}>
+                        <SectionText text={body} quote={active ? cite?.quote : undefined} />
+                        {clamped && "…"}
+                      </p>
+                      {clamped && (
+                        <button
+                          onClick={() => setFullRefs((prev) => new Set(prev).add(s.ref))}
+                          data-testid="show-full-section"
+                          className="mb-1 text-[11px] text-[#16324f] underline underline-offset-2 hover:text-[#0f2438]"
+                        >
+                          Show full section ({Math.round(s.text.length / 1000)}K characters)
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               );
