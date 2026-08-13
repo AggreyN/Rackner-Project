@@ -26,7 +26,7 @@
 // mock (lib/mock.ts) so the UI runs with no backend — same seam pattern the
 // team has used since week 2.
 
-import { getToken } from "./auth";
+import { clearSession, getToken } from "./auth";
 import type {
   Analysis,
   ChatAnswer,
@@ -49,7 +49,21 @@ function headers(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function json<T>(res: Response): Promise<T> {
+/** Cognito tokens live ~1 hour. When one dies mid-session every call starts
+ *  401ing — without this, that surfaces as raw errors all over the UI (the
+ *  mid-demo failure mode). Instead: clear the dead session and hard-redirect
+ *  to /login with a banner. `authRedirect: false` opts out — the login call
+ *  itself must show "wrong password" inline, not bounce the page. */
+async function json<T>(res: Response, opts: { authRedirect?: boolean } = {}): Promise<T> {
+  const { authRedirect = true } = opts;
+  if (res.status === 401 && authRedirect && typeof window !== "undefined") {
+    clearSession();
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.assign("/login?expired=1");
+    }
+    // The redirect is async — still throw so in-flight callers stop cleanly.
+    throw new Error("Session expired — sign in again.");
+  }
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
   return res.json() as Promise<T>;
 }
@@ -63,7 +77,8 @@ export async function login(email: string, password: string): Promise<{ access_t
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
-    })
+    }),
+    { authRedirect: false } // a bad password is an inline error, not a bounce
   );
 }
 

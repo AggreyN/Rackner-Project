@@ -49,6 +49,17 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
   const [collapsed, setCollapsed] = useState(false); // desktop right pane
   const [mobilePane, setMobilePane] = useState<"analysis" | "source">("analysis");
 
+  // A cached analysis lands in a couple of seconds. Past that, this is a
+  // first-time generation (the backend is reading the whole package, up to
+  // ~5 min) — switch to a message that makes the wait look intentional
+  // instead of frozen.
+  const [firstGeneration, setFirstGeneration] = useState(false);
+  useEffect(() => {
+    if (analysis || error) return;
+    const t = setTimeout(() => setFirstGeneration(true), 4000);
+    return () => clearTimeout(t);
+  }, [analysis, error]);
+
   useEffect(() => {
     if (!ready) return;
     if (email) getProfile(email).then(setProfile).catch(() => {});
@@ -179,9 +190,20 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
                       <div className="h-3 w-1/2 animate-pulse bg-[#eef2f6]" />
                     </div>
                   </div>
-                  <p className="mt-3 text-xs text-[#51606f]">
-                    Scoring against your lifecycle plan and extracting cited obligations…
-                  </p>
+                  {firstGeneration ? (
+                    <p className="mt-3 text-xs leading-relaxed text-[#51606f]" data-testid="first-generation">
+                      <b className="text-[#16324f]">
+                        Reading the full solicitation package — this happens once per opportunity.
+                      </b>{" "}
+                      Every obligation is extracted and its quote verified against the source
+                      before anything is shown. Large packages can take a few minutes; the result
+                      is cached for everyone afterward.
+                    </p>
+                  ) : (
+                    <p className="mt-3 text-xs text-[#51606f]">
+                      Scoring against your lifecycle plan and extracting cited obligations…
+                    </p>
+                  )}
                 </div>
               )
             )}
