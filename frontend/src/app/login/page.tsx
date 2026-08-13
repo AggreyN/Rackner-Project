@@ -5,13 +5,24 @@
 // this page just forwards credentials over TLS and keeps the token in
 // sessionStorage. In mock mode any rackner.com email signs in.
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { login } from "@/lib/api";
 import { isSignedIn, setSession } from "@/lib/auth";
 
+// useSearchParams needs a Suspense boundary at build time.
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginInner />
+    </Suspense>
+  );
+}
+
+function LoginInner() {
   const router = useRouter();
+  // Set by api.ts when a 401 kills the session mid-use (tokens live ~1h).
+  const expired = useSearchParams().get("expired") === "1";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,6 +57,15 @@ export default function LoginPage() {
         </div>
         <h1 className="text-xl font-semibold text-[#16324f]">Rackner FDI</h1>
         <p className="mb-5 text-[13px] text-[#51606f]">Federal Document Intelligence</p>
+
+        {expired && (
+          <p
+            data-testid="session-expired"
+            className="mb-4 rounded-md border border-[#eeddba] bg-[#fbf4e6] px-3 py-2 text-[12.5px] text-[#9a6a1e]"
+          >
+            Your session expired — sign in again to continue.
+          </p>
+        )}
 
         <label htmlFor="email" className="mb-1 block text-xs text-[#51606f]">
           Work email

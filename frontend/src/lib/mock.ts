@@ -106,6 +106,24 @@ const NO_EXPIRY = {
 const OPPORTUNITIES: OpportunitySummary[] = [
   {
     ...NO_EXPIRY,
+    id: "navy-pcte-0118",
+    title: "Navy PCTE Cyber Training Environment Support",
+    agency: "Dept. of the Navy",
+    office: "NAVWAR",
+    solicitation_number: "N00178-26-R-0118",
+    naics: "541519",
+    set_aside: null,
+    kind: "solicitation",
+    description:
+      "Full solicitation package (106 sections) — PCTE range operations, content development, and exercise support. Mirrors production-scale documents.",
+    close_date: "2026-08-28",
+    days_to_close: 28,
+    est_value: "$10–15M / 5yr",
+    incumbent: "RangeWorks Federal",
+    fit_score: 74,
+  },
+  {
+    ...NO_EXPIRY,
     id: "disa-soc-0042",
     title: "Managed Cybersecurity & SOC Support Services",
     agency: "Dept. of Defense",
@@ -963,6 +981,90 @@ const DOCUMENTS: Record<string, SourceDocument> = {
   },
 };
 
+// ---------- production-scale package (the PCTE stand-in) ----------
+//
+// The live backend now serves entire solicitation packages — the real Navy
+// PCTE one is 106 sections / ~208K characters. This generated fixture
+// matches that scale so big-document rendering (TOC, collapsed sections,
+// scroll) is exercised by tests and demos without the real backend.
+
+const PCTE_QUOTES = {
+  submit:
+    "Offers shall be submitted electronically via the SAM.gov portal no later than 12:00 PM ET on 28 August 2026.",
+  range:
+    "The Contractor shall operate and maintain the Persistent Cyber Training Environment ranges at 99.5 percent availability measured monthly.",
+  cmmc: "Offerors shall hold CMMC Level 2 certification at the time of proposal submission.",
+} as const;
+
+function buildPcteDocument(): SourceDocument {
+  const filler = (ref: string, topic: string): string => {
+    // ~1.9K chars of deterministic, section-unique prose (no randomness —
+    // quotes and tests need byte-stable text).
+    const base =
+      `${ref} ${topic}. The Contractor shall provide all personnel, equipment, tools, ` +
+      `materials, supervision, and other items and non-personal services necessary to ` +
+      `perform ${topic.toLowerCase()} as defined in this Performance Work Statement ` +
+      `except as specified as Government-furnished property and services. Performance ` +
+      `shall meet or exceed the standards in the Performance Requirements Summary. `;
+    return base + `The Government will assess performance in accordance with the QASP. `.repeat(18);
+  };
+
+  const sections: SourceDocument["sections"] = [];
+  // Anchored sections — obligations and chat citations ground into these.
+  sections.push({
+    ref: "C.3.4",
+    heading: "C.3.4 — RANGE OPERATIONS & AVAILABILITY",
+    page: 12,
+    text: `C.3.4 Range Operations. ${PCTE_QUOTES.range} Scheduled maintenance windows shall be coordinated no fewer than 14 days in advance and documented in the range operations log.`,
+  });
+  // PWS body: C.4.1 … C.4.60
+  for (let i = 1; i <= 60; i++) {
+    sections.push({
+      ref: `C.4.${i}`,
+      heading: `C.4.${i} — PWS TASK AREA ${i}`,
+      page: 13 + Math.floor(i / 3),
+      text: filler(`C.4.${i}`, `Task Area ${i} support services`),
+    });
+  }
+  // Attachments/CDRLs: F.3.1 … F.3.40
+  for (let i = 1; i <= 40; i++) {
+    sections.push({
+      ref: `F.3.${i}`,
+      heading: `F.3.${i} — CDRL A0${String(i).padStart(2, "0")}`,
+      page: 40 + Math.floor(i / 4),
+      text: filler(`F.3.${i}`, `Data deliverable A0${String(i).padStart(2, "0")}`),
+    });
+  }
+  sections.push({
+    ref: "L.2",
+    heading: "L.2 — SUBMISSION INSTRUCTIONS",
+    page: 88,
+    text: `L.2 Submission. ${PCTE_QUOTES.submit} Late offers will not be considered. Volumes exceeding stated page limits will not be evaluated.`,
+  });
+  sections.push({
+    ref: "M.6",
+    heading: "M.6 — CERTIFICATION REQUIREMENTS",
+    page: 96,
+    text: `M.6 Certifications. ${PCTE_QUOTES.cmmc} Certification status will be verified in SPRS prior to award.`,
+  });
+  // 3 anchored + 60 + 40 = 103; pad to 106 with H clauses.
+  for (let i = 1; i <= 3; i++) {
+    sections.push({
+      ref: `H.${i}`,
+      heading: `H.${i} — SPECIAL CONTRACT REQUIREMENT ${i}`,
+      page: 70 + i,
+      text: filler(`H.${i}`, `Special contract requirement ${i}`),
+    });
+  }
+  return {
+    opportunity_id: "navy-pcte-0118",
+    label: "Source solicitation · N00178-26-R-0118 (full package)",
+    sections,
+  };
+}
+
+DOCUMENTS["navy-pcte-0118"] = buildPcteDocument();
+
 export async function getSourceDocument(id: string): Promise<SourceDocument> {
   const d = DOCUMENTS[id];
   if (!d) throw new Error(`404: no source document for ${id}`);
@@ -1194,3 +1296,134 @@ export async function askChat(
     900
   );
 }
+
+// ---------- PCTE package fixtures (analysis · spend · contact) ----------
+// Registered at module end so every record above is initialized.
+
+ANALYSES["navy-pcte-0118"] = {
+  opportunity_id: "navy-pcte-0118",
+  score: 74,
+  band: "pursue",
+  verdict: "Pursue — strong range-ops fit, full & open",
+  factors: [
+    {
+      key: "mission",
+      label: "Strategic / mission alignment",
+      weight: 0.15,
+      score: 4.1,
+      rationale: "Navy cyber training aligns with the plan's DoD cyber focus.",
+      citation: { section: "§C.3.4", page: 12 },
+    },
+    {
+      key: "technical",
+      label: "Technical & domain capability",
+      weight: 0.2,
+      score: 4.3,
+      rationale: "Range operations and content development map to SOC + DevSecOps capabilities.",
+      citation: { section: "§C.3.4", page: 12 },
+    },
+    {
+      key: "past_perf",
+      label: "Past-performance relevance",
+      weight: 0.15,
+      score: 3.4,
+      rationale: "Adjacent cyber-range work; no PCTE-specific past performance.",
+      citation: null,
+    },
+    {
+      key: "vehicle",
+      label: "Contract-vehicle access",
+      weight: 0.1,
+      score: 4.0,
+      rationale: "Open SeaPort-style solicitation; no restricted vehicle.",
+      citation: { section: "§L.2", page: 88 },
+    },
+    {
+      key: "set_aside",
+      label: "Set-aside eligibility",
+      weight: 0.1,
+      score: 3.0,
+      rationale: "Full & open — no set-aside leverage.",
+      citation: null,
+    },
+    {
+      key: "incumbent",
+      label: "Incumbent advantage (inverse)",
+      weight: 0.1,
+      score: 2.6,
+      rationale: "RangeWorks Federal has held the work for one full period.",
+      citation: null,
+    },
+    {
+      key: "pricing",
+      label: "Pricing / size fit",
+      weight: 0.1,
+      score: 4.0,
+      rationale: "$10–15M over 5 years sits inside the plan's target band.",
+      citation: null,
+    },
+    {
+      key: "time",
+      label: "Time to respond / shape",
+      weight: 0.1,
+      score: 3.4,
+      rationale: "28 days is workable for a package this size with reuse.",
+      citation: { section: "§L.2", page: 88 },
+    },
+  ],
+  obligations: [
+    {
+      id: 1,
+      text: "Submit offer via SAM.gov by noon ET, Aug 28",
+      obligation_type: "submission",
+      time_bucket: "immediate",
+      deadline_label: "Immediate · 28 days",
+      verbatim_quote: PCTE_QUOTES.submit,
+      citation: { section: "§L.2", page: 88 },
+      verified: true,
+    },
+    {
+      id: 2,
+      text: "Operate PCTE ranges at 99.5% monthly availability",
+      obligation_type: "performance",
+      time_bucket: "ongoing",
+      deadline_label: "Ongoing SLA",
+      verbatim_quote: PCTE_QUOTES.range,
+      citation: { section: "§C.3.4", page: 12 },
+      verified: true,
+    },
+    {
+      id: 3,
+      text: "Hold CMMC Level 2 at proposal submission (not award)",
+      obligation_type: "certification",
+      time_bucket: "immediate",
+      deadline_label: "At submission",
+      verbatim_quote: PCTE_QUOTES.cmmc,
+      citation: { section: "§M.6", page: 96 },
+      verified: true,
+    },
+  ],
+};
+
+SPEND["navy-pcte-0118"] = {
+  opportunity_id: "navy-pcte-0118",
+  years: [
+    { fiscal_year: "FY22", amount: 2_100_000 },
+    { fiscal_year: "FY23", amount: 2_600_000 },
+    { fiscal_year: "FY24", amount: 3_000_000 },
+    { fiscal_year: "FY25", amount: 3_400_000 },
+  ],
+  total_obligated: 11_100_000,
+  incumbent: { name: "RangeWorks Federal", uei: "PCT456NVY" },
+  trend_pct: 17,
+};
+
+CONTACTS["navy-pcte-0118"] = {
+  opportunity_id: "navy-pcte-0118",
+  name: "Maria Delgado",
+  title: "Contracting Officer",
+  office: "NAVWAR Contracts Directorate",
+  email: "maria.delgado@navy.mil",
+  confidence: 0.85,
+  active_solicitation: true,
+};
