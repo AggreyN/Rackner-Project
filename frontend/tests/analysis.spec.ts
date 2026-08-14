@@ -117,7 +117,7 @@ test.describe("money and contact", () => {
 test.describe("assistant", () => {
   test("answers with citations that jump to the source", async ({ page }, testInfo) => {
     await page
-      .getByPlaceholder("Ask a question about this contract…")
+      .getByPlaceholder("Ask Anvil Anything about this contract…")
       .fill("What would disqualify us from bidding?");
     await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByText(/CMMC Level 2 is required at award/)).toBeVisible();

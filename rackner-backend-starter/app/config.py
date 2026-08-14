@@ -68,6 +68,17 @@ LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 # RPM. Set to 1 to restore sequential behavior.
 LLM_EXTRACT_CONCURRENCY = int(os.getenv("LLM_EXTRACT_CONCURRENCY", "8"))
 
+# Chat: long grounded answers (verbatim quotes are bulky) truncated at the
+# default 4096 output tokens, which broke the response JSON mid-string and
+# surfaced as blank chat bubbles. Give chat more headroom — output tokens only
+# bill for what's actually written.
+CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "8192"))
+
+# Chat sends section text with EVERY question. Full solicitation packages run
+# to hundreds of KB — slow, costly, and truncation-prone. Over this budget,
+# the most question-relevant sections are kept (logged, never silent).
+CHAT_MAX_SECTION_CHARS = int(os.getenv("CHAT_MAX_SECTION_CHARS", "120000"))
+
 # Bedrock extraction runs one model call PER SECTION. A 638-page document
 # sections into ~550 — one stray click must not buy 550 model calls. Sections
 # beyond the cap are skipped WITH A LOG LINE (no silent truncation); raise the

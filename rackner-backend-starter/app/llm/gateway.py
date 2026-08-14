@@ -19,6 +19,7 @@ against the exact section its citation names, so the UI's
 
 import json
 import logging
+import re
 
 from app import config
 from app.llm import mock, prompts
@@ -262,6 +263,73 @@ def analyze(opportunity: dict, lifecycle_profile: dict, sections: list) -> dict:
     }
 
 
+# Tolerates an UNTERMINATED string — that is the truncation case.
+_ANSWER_RE = re.compile(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)')
+
+
+def _salvage_answer(raw: str) -> str:
+    """Recover the answer text from a response that failed JSON parsing.
+
+    The model writes `answer` before `citations`, so when the output-token cap
+    truncates the JSON mid-citation the answer text usually survives. Pull it
+    out; if even that fails, return an explicit apology — never empty. Blank
+    200s were shipped to real users before this existed.
+    """
+    match = _ANSWER_RE.search(raw or "")
+    if match:
+        fragment = match.group(1).rstrip("\\")
+        try:
+            return json.loads(f'"{fragment}"')
+        except ValueError:
+            text = fragment.replace("\\n", "\n").replace('\\"', '"')
+            if text.strip():
+                return text
+    return (
+        "I had trouble composing that answer — please ask again, or make the "
+        "question more specific."
+    )
+
+
+def _chat_sections(question: str, sections: list) -> list:
+    """Fit the grounding context into a budget on monster documents.
+
+    Chat resends section text with every question; a full solicitation package
+    runs to hundreds of KB, which is slow, expensive, and pushes the model
+    toward truncated output. Under the budget nothing changes. Over it, keep
+    the sections most lexically relevant to the question (plus the opening
+    section for framing), in document order — and say so in the log. Citations
+    are unaffected: kept sections are real sections, and validation upstream
+    runs against the full set.
+    """
+    budget = config.CHAT_MAX_SECTION_CHARS
+    lengths = [len(_section_field(s, "text", "") or "") for s in sections]
+    if sum(lengths) <= budget or not sections:
+        return sections
+
+    words = set(re.findall(r"[a-z0-9]{3,}", (question or "").lower()))
+    scored = []
+    for i, section in enumerate(sections):
+        text = (_section_field(section, "text", "") or "").lower()
+        scored.append((sum(text.count(w) for w in words), i))
+
+    keep = {0}  # the opening section frames what the document IS
+    used = lengths[0]
+    for score, i in sorted(scored, key=lambda t: (-t[0], t[1])):
+        if i in keep or used + lengths[i] > budget:
+            continue
+        keep.add(i)
+        used += lengths[i]
+
+    logging.getLogger(__name__).warning(
+        "chat context capped: %d of %d sections (%d of %d chars)",
+        len(keep),
+        len(sections),
+        used,
+        sum(lengths),
+    )
+    return [s for i, s in enumerate(sections) if i in keep]
+
+
 def answer_question(question: str, sections: list, history: list | None = None) -> dict:
     """Answer a question grounded in the solicitation's own sections.
 
@@ -281,15 +349,21 @@ def answer_question(question: str, sections: list, history: list | None = None) 
     if config.LLM_MODE == "bedrock":
         from app.llm import bedrock_client
 
-        parsed = _parse_json(
-            bedrock_client.invoke(
-                prompts.CHAT_SYSTEM,
-                prompts.chat_user_prompt(question, sections, history),
-            )
+        raw = bedrock_client.invoke(
+            prompts.CHAT_SYSTEM,
+            prompts.chat_user_prompt(
+                question, _chat_sections(question, list(sections or [])), history
+            ),
+            max_tokens=config.CHAT_MAX_TOKENS,
         )
+        parsed = _parse_json(raw)
         parsed = parsed if isinstance(parsed, dict) else {}
         answer = str(parsed.get("answer", "") or "")
         raw_citations = parsed.get("citations") or []
+        if not answer.strip():
+            # A truncated/garbled response must never become a blank bubble.
+            answer = _salvage_answer(raw)
+            raw_citations = raw_citations or []
     else:
         result = mock.answer_question(question, sections, history)
         answer, raw_citations = result["answer"], result["citations"]

@@ -34,12 +34,20 @@ export default function ChatPanel({
       const res = await askChat(opportunityId, question, history);
       setMessages((m) => [
         ...m,
-        { role: "assistant", text: res.answer, citations: res.citations },
+        {
+          role: "assistant",
+          // Belt-and-suspenders: the backend never sends blank answers anymore,
+          // but a blank bubble must be impossible at this layer too.
+          text: res.answer?.trim()
+            ? res.answer
+            : "Anvil had trouble with that one — try asking again.",
+          citations: res.citations,
+        },
       ]);
     } catch {
       setMessages((m) => [
         ...m,
-        { role: "assistant", text: "Couldn't reach the assistant — try again." },
+        { role: "assistant", text: "Couldn't reach Anvil — try again." },
       ]);
     } finally {
       setBusy(false);
@@ -49,7 +57,7 @@ export default function ChatPanel({
   return (
     <div className="border border-[#d7dee6] bg-white p-4 sm:p-5" data-testid="chat-panel">
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-[#51606f]">
-        Ask about this opportunity
+        Anvil AI — Ask about this opportunity
       </h3>
 
       <div className="space-y-2">
@@ -103,14 +111,14 @@ export default function ChatPanel({
             </div>
           )
         )}
-        {busy && <p className="text-xs text-[#51606f]">Assistant is reading the document…</p>}
+        {busy && <p className="text-xs text-[#51606f]">Anvil is reading the document…</p>}
       </div>
 
       <form onSubmit={send} className="mt-3 flex gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask a question about this contract…"
+          placeholder="Ask Anvil Anything about this contract…"
           className="w-full flex-1 rounded-md border border-[#d7dee6] px-3 py-2 text-sm focus:border-[#16324f] focus:outline-none"
         />
         <button

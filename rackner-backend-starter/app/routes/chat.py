@@ -16,6 +16,8 @@ window; clients that omit it keep the old single-turn behaviour.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -24,6 +26,8 @@ from app.llm import gateway
 from app.models import Opportunity, User
 from app.routes.documents import get_or_build_document
 from app.schemas import ChatAnswer, ChatRequest, trim_history
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
 
@@ -63,4 +67,15 @@ def ask(
         )
 
     history = [t.model_dump() for t in trim_history(body.history)]
-    return ChatAnswer(**gateway.answer_question(question, doc.sections, history))
+    try:
+        return ChatAnswer(**gateway.answer_question(question, doc.sections, history))
+    except HTTPException:
+        raise
+    except Exception:
+        # A model-side failure (Bedrock throttle, network) was reaching users
+        # as a bare 500. A chat turn fails soft: named 503, retriable.
+        log.warning("chat turn failed against the model", exc_info=True)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The assistant couldn't reach the model — ask again in a moment.",
+        )
