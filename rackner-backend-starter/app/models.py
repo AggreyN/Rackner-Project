@@ -131,6 +131,25 @@ class Opportunity(Base):
     )
 
 
+class SearchFetch(Base):
+    """Freshness ledger: when was this (query, kinds) last fetched LIVE.
+
+    Within SAM_SEARCH_TTL_HOURS the search serves cached opportunity rows and
+    spends ZERO SAM quota — repeat searches and dashboard loads are free. A
+    stale or unseen query spends exactly one live call and refreshes the
+    ledger. This is what makes a 10-call/day key livable.
+    """
+
+    __tablename__ = "search_fetches"
+    __table_args__ = (
+        Index("uq_search_fetches_query_key", "query_key", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    query_key: Mapped[str] = mapped_column(String(64))  # sha256 hex
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class FitEstimate(Base):
     """Cached AI pre-screen score for one (user, opportunity) card.
 

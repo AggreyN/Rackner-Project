@@ -31,7 +31,7 @@ from app import config
 from app.deps import current_user, get_db
 from app.llm import gateway
 from app.models import Analysis as AnalysisModel
-from app.models import FitEstimate
+from app.models import FitEstimate, SearchFetch
 from app.models import LifecycleProfile as LifecycleProfileModel
 from app.models import Opportunity, User
 from app.routes.analysis import warm_analysis
@@ -93,7 +93,10 @@ def _cache(db: Session, summaries: list[dict]) -> None:
         row.naics = s.get("naics")
         row.set_aside = s.get("set_aside")
         row.kind = s.get("kind") or "solicitation"
-        row.source_url = s.get("_source_url") or ""
+        # Only set when present: cache-replayed summaries don't carry the
+        # internal key, and blanking a stored URL on every replay loses data.
+        if s.get("_source_url"):
+            row.source_url = s["_source_url"]
         row.est_value = s.get("est_value")
         row.incumbent = s.get("incumbent")
         row.current_award_value = s.get("current_award_value")
@@ -150,22 +153,87 @@ def _clean(summaries: list[dict]) -> list[OpportunitySummary]:
     ]
 
 
-def _cached_sam_rows(db: Session, *, query: str, kinds: list[str], limit: int) -> list[dict]:
-    """Fallback when SAM.gov is down: search the rows earlier searches cached.
+def _sam_query_key(query: str, sam_kinds: list[str] | None) -> str:
+    """Bounded ledger key: sha256 of the normalized (query, kinds).
 
-    Same pattern as the detail view's serve-stale — a rate-limited key must
-    not make previously seen opportunities vanish. Matches q against title,
-    description and solicitation number, newest first.
+    Hashed because the raw query is user-controlled and unbounded — a long
+    query overflowing the column would 500 AFTER the live call burned quota,
+    and repeat forever since the ledger never stamps.
+    """
+    import hashlib
+
+    kinds_part = ",".join(sorted(set(sam_kinds))) if sam_kinds else "all"
+    raw = f"{(query or '').strip().lower()}|{kinds_part}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _sam_fetch_is_fresh(db: Session, query: str, sam_kinds: list[str] | None) -> bool:
+    row = db.scalar(
+        select(SearchFetch).where(
+            SearchFetch.query_key == _sam_query_key(query, sam_kinds)
+        )
+    )
+    if row is None or row.fetched_at is None:
+        return False
+    fetched = row.fetched_at
+    if fetched.tzinfo is None:  # SQLite round-trips naive datetimes
+        fetched = fetched.replace(tzinfo=datetime.timezone.utc)
+    age = datetime.datetime.now(datetime.timezone.utc) - fetched
+    return age.total_seconds() < config.SAM_SEARCH_TTL_HOURS * 3600
+
+
+def _record_sam_fetch(db: Session, query: str, sam_kinds: list[str] | None) -> None:
+    key = _sam_query_key(query, sam_kinds)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    row = db.scalar(select(SearchFetch).where(SearchFetch.query_key == key))
+    if row is None:
+        row = SearchFetch(query_key=key, fetched_at=now)
+        db.add(row)
+    else:
+        row.fetched_at = now
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()  # concurrent request recorded the same key — equally fresh
+
+
+def _cached_sam_rows(db: Session, *, query: str, kinds: list[str], limit: int) -> list[dict]:
+    """Serve SAM rows from the cache: the freshness-window replay AND the
+    SAM-down fallback.
+
+    Matching is per-WORD (any token hits title/description/solicitation
+    number, wildcards escaped) — SAM's own full-text search is looser than a
+    literal phrase match, and an over-narrow replay would fabricate empty
+    result pages. Notices already past their close date are excluded: serving
+    a dead deadline from cache is worse than serving nothing. Empty-query
+    replays (the dashboard) are limited to rows fetched inside the freshness
+    window, so one user's old niche searches don't become everyone's feed.
     """
     wanted = [k for k in kinds if k in SAM_KINDS] or list(SAM_KINDS)
-    stmt = select(Opportunity).where(Opportunity.kind.in_(wanted))
+    today = datetime.date.today()
+    stmt = select(Opportunity).where(
+        Opportunity.kind.in_(wanted),
+        (Opportunity.close_date.is_(None)) | (Opportunity.close_date >= today),
+    )
     if query:
-        needle = f"%{query}%"
-        stmt = stmt.where(
-            Opportunity.title.ilike(needle)
-            | Opportunity.description.ilike(needle)
-            | Opportunity.solicitation_number.ilike(needle)
+        words = [w for w in query.split() if len(w) >= 3] or [query.strip()]
+        clauses = []
+        for word in words:
+            needle = "%" + word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            clauses.append(
+                Opportunity.title.ilike(needle, escape="\\")
+                | Opportunity.description.ilike(needle, escape="\\")
+                | Opportunity.solicitation_number.ilike(needle, escape="\\")
+            )
+        combined = clauses[0]
+        for clause in clauses[1:]:
+            combined = combined | clause
+        stmt = stmt.where(combined)
+    else:
+        window_start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            hours=config.SAM_SEARCH_TTL_HOURS
         )
+        stmt = stmt.where(Opportunity.fetched_at >= window_start)
     rows = db.scalars(
         stmt.order_by(Opportunity.fetched_at.desc()).limit(limit)
     ).all()
@@ -196,23 +264,33 @@ def _collect(
     failures: list[UpstreamError] = []
 
     if wants_live:
-        try:
-            results.extend(
-                samgov.search(
-                    query, kinds=[k for k in kinds if k in SAM_KINDS] or None, limit=limit
-                )
-            )
-        except UpstreamError as exc:
-            failures.append(exc)
+        sam_kinds = [k for k in kinds if k in SAM_KINDS] or None
+        replayed = False
+        if _sam_fetch_is_fresh(db, query, sam_kinds):
+            # This query was asked live within the freshness window — the
+            # cached rows ARE the answer. Zero SAM quota spent. If the replay
+            # matcher finds nothing for a non-empty query (its ilike semantics
+            # are narrower than SAM's), fall through to a live fetch rather
+            # than serving a confident empty page.
             cached = _cached_sam_rows(db, query=query, kinds=kinds, limit=limit)
-            if cached:
-                log.warning(
-                    "%s unavailable (%s); serving %d cached solicitations",
-                    exc.service,
-                    exc.detail,
-                    len(cached),
-                )
+            if cached or not query:
                 results.extend(cached)
+                replayed = True
+        if not replayed:
+            try:
+                results.extend(samgov.search(query, kinds=sam_kinds, limit=limit))
+                _record_sam_fetch(db, query, sam_kinds)
+            except UpstreamError as exc:
+                failures.append(exc)
+                cached = _cached_sam_rows(db, query=query, kinds=kinds, limit=limit)
+                if cached:
+                    log.warning(
+                        "%s unavailable (%s); serving %d cached solicitations",
+                        exc.service,
+                        exc.detail,
+                        len(cached),
+                    )
+                    results.extend(cached)
 
     if wants_expiring:
         try:

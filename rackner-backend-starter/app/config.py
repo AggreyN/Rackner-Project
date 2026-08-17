@@ -87,6 +87,11 @@ CHAT_MAX_SECTION_CHARS = int(os.getenv("CHAT_MAX_SECTION_CHARS", "120000"))
 FIT_PRESCREEN_MAX_ROWS = int(os.getenv("FIT_PRESCREEN_MAX_ROWS", "60"))
 FIT_PRESCREEN_MIN_ROWS = int(os.getenv("FIT_PRESCREEN_MIN_ROWS", "2"))
 
+# A search repeated within this window serves cached rows and spends ZERO SAM
+# quota (the freshness ledger, models.SearchFetch). New notices post daily, so
+# half a day balances freshness against a 10-call/day key. 0 disables caching.
+SAM_SEARCH_TTL_HOURS = float(os.getenv("SAM_SEARCH_TTL_HOURS", "12"))
+
 # Bedrock extraction runs one model call PER SECTION. A 638-page document
 # sections into ~550 — one stray click must not buy 550 model calls. Sections
 # beyond the cap are skipped WITH A LOG LINE (no silent truncation); raise the
