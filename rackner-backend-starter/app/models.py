@@ -131,6 +131,36 @@ class Opportunity(Base):
     )
 
 
+class FitEstimate(Base):
+    """Cached AI pre-screen score for one (user, opportunity) card.
+
+    Search pages are scored in ONE batched model call from card metadata; the
+    result is cached here so the number is STABLE across search → detail →
+    tomorrow, and repeat searches cost nothing. Invalidated when the user
+    uploads a new lifecycle plan (an estimate against an old profile is
+    meaningless). At serialization time a cached ANALYSIS score always takes
+    precedence over any estimate — once the researched number exists, the
+    card must agree with the analysis screen.
+    """
+
+    __tablename__ = "fit_estimates"
+    __table_args__ = (
+        Index("uq_fit_estimates_user_opp", "user_id", "opportunity_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    opportunity_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("opportunities.id", ondelete="CASCADE"), index=True
+    )
+    score: Mapped[float] = mapped_column(Float)  # 0–100
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+
 class Analysis(Base):
     """Kaliza's LLM output for one opportunity + user. factors/obligations are JSON."""
 

@@ -21,41 +21,49 @@ import threading
 from app import config
 
 _client_lock = threading.Lock()
-_client_cached = None
+_clients: dict[str, object] = {}
 
 
-def _client():
-    """One shared bedrock-runtime client, built under a lock.
+def _client(profile: str = "default"):
+    """Shared bedrock-runtime clients (one per timeout profile), built under a
+    lock — clients are thread-safe to SHARE; racing their creation is not.
 
-    Clients are thread-safe to SHARE; boto3's default-Session setup and
-    create_client are NOT thread-safe to RACE — parallel extraction's first
-    cold-start fan-out would hit exactly that. Imported lazily so mock mode
-    never touches boto3/AWS.
+    "default": generation work (extraction/analysis/chat) — patient reads and
+    adaptive retries, because the caller is a background warm or a polling UI.
+    "interactive": calls sitting inside a front-door request (the search-page
+    pre-screen) — fail FAST and let the caller fall back; a wedged model call
+    must never hold request threads and DB connections hostage.
     """
-    global _client_cached
-    if _client_cached is None:
+    if profile not in _clients:
         with _client_lock:
-            if _client_cached is None:
+            if profile not in _clients:
                 import boto3
                 from botocore.config import Config as BotoConfig
 
-                _client_cached = boto3.client(
+                knobs = (
+                    {"retries": {"max_attempts": 1}, "read_timeout": 20, "connect_timeout": 3}
+                    if profile == "interactive"
+                    else {
+                        "retries": {"max_attempts": 6, "mode": "adaptive"},
+                        "read_timeout": 120,
+                        "connect_timeout": 5,
+                    }
+                )
+                _clients[profile] = boto3.client(
                     "bedrock-runtime",
                     region_name=config.AWS_REGION,
-                    config=BotoConfig(
-                        # Parallel extraction bursts 8-wide; adaptive mode
-                        # rate-limits client-side on throttles instead of
-                        # failing sections. Dense clause sections produce
-                        # big outputs — allow slow reads.
-                        retries={"max_attempts": 6, "mode": "adaptive"},
-                        read_timeout=120,
-                        connect_timeout=5,
-                    ),
+                    config=BotoConfig(**knobs),
                 )
-    return _client_cached
+    return _clients[profile]
 
 
-def invoke(system: str, user_prompt: str, max_tokens: int | None = None) -> str:
+def invoke(
+    system: str,
+    user_prompt: str,
+    max_tokens: int | None = None,
+    *,
+    profile: str = "default",
+) -> str:
     """Send one message to Claude on Bedrock and return the concatenated text.
 
     Raises whatever boto3 raises on failure (credentials, throttling, access) —
@@ -70,7 +78,7 @@ def invoke(system: str, user_prompt: str, max_tokens: int | None = None) -> str:
             {"role": "user", "content": [{"type": "text", "text": user_prompt}]}
         ],
     }
-    response = _client().invoke_model(
+    response = _client(profile).invoke_model(
         modelId=config.BEDROCK_MODEL_ID,
         body=json.dumps(body),
         accept="application/json",

@@ -24,10 +24,14 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import config
 from app.deps import current_user, get_db
+from app.llm import gateway
+from app.models import Analysis as AnalysisModel
+from app.models import FitEstimate
 from app.models import LifecycleProfile as LifecycleProfileModel
 from app.models import Opportunity, User
 from app.routes.analysis import warm_analysis
@@ -265,7 +269,7 @@ def search_opportunities(
         limit=limit,
     )
     _cache(db, results)
-    fit.rank(results, _lifecycle(db, user))
+    _apply_fit(db, user, results, _lifecycle(db, user))
     return _clean(results)
 
 
@@ -293,8 +297,102 @@ def suggested_opportunities(
         limit=limit,
     )
     _cache(db, results)
-    fit.rank(results, lifecycle)
+    _apply_fit(db, user, results, lifecycle)
     return _clean(results)
+
+
+def _apply_fit(db: Session, user: User, rows: list[dict], lifecycle: dict | None) -> list[dict]:
+    """Attach fit_score + fit_source to every row; sort best-first with a plan.
+
+    Precedence, most-truthful first:
+      1. the user's cached ANALYSIS score — once the researched number exists,
+         the card must agree with the analysis screen (fit_source="analysis");
+      2. a cached AI pre-screen estimate (stable across pages and days);
+      3. a fresh batched AI pre-screen — ONE model call for the whole page,
+         persisted so it is never paid twice (bedrock mode only);
+      4. the deterministic heuristic (mock mode, model failure, or ids the
+         model skipped) — still an "estimate".
+    With no plan on file everything stays null, unranked.
+    """
+    ids = [r["id"] for r in rows if r.get("id")]
+    if not ids:
+        return rows
+
+    analysis_by = {
+        a.opportunity_id: a.score
+        for a in db.scalars(
+            select(AnalysisModel).where(
+                AnalysisModel.user_id == user.id,
+                AnalysisModel.opportunity_id.in_(ids),
+            )
+        )
+    }
+
+    estimate_by: dict[str, float] = {}
+    if lifecycle:
+        estimate_by = {
+            e.opportunity_id: e.score
+            for e in db.scalars(
+                select(FitEstimate).where(
+                    FitEstimate.user_id == user.id,
+                    FitEstimate.opportunity_id.in_(ids),
+                )
+            )
+        }
+        need = [
+            r
+            for r in rows
+            if r.get("id")
+            and r["id"] not in analysis_by
+            and r["id"] not in estimate_by
+        ]
+        # Below the floor (a detail view's single row), skip the model: the
+        # heuristic is instant and the analysis pre-warm supersedes any
+        # estimate within a minute of the click anyway.
+        if len(need) >= config.FIT_PRESCREEN_MIN_ROWS:
+            try:
+                fresh = gateway.prescreen_scores(lifecycle, need)
+            except Exception:
+                # The search page must never break because scoring hiccuped.
+                log.warning("AI pre-screen failed; using heuristic", exc_info=True)
+                fresh = {}
+            if fresh:
+                try:
+                    for oid, score in fresh.items():
+                        db.add(
+                            FitEstimate(user_id=user.id, opportunity_id=oid, score=score)
+                        )
+                    db.commit()
+                except IntegrityError:
+                    # A concurrent request raced us on some row. Salvage the
+                    # rest one-by-one instead of dropping the whole batch.
+                    db.rollback()
+                    for oid, score in fresh.items():
+                        try:
+                            db.add(
+                                FitEstimate(
+                                    user_id=user.id, opportunity_id=oid, score=score
+                                )
+                            )
+                            db.commit()
+                        except IntegrityError:
+                            db.rollback()
+                estimate_by.update(fresh)
+
+    for r in rows:
+        oid = r.get("id")
+        if oid in analysis_by:
+            r["fit_score"], r["fit_source"] = analysis_by[oid], "analysis"
+        elif lifecycle and oid in estimate_by:
+            r["fit_score"], r["fit_source"] = estimate_by[oid], "estimate"
+        elif lifecycle:
+            r["fit_score"], r["fit_source"] = fit.score(r, lifecycle), "estimate"
+        else:
+            r["fit_score"], r["fit_source"] = None, None
+
+    if lifecycle:
+        rows.sort(key=lambda o: (o.get("fit_score") or 0.0), reverse=True)
+    return rows
 
 
 def _maybe_prewarm(
@@ -326,7 +424,7 @@ def get_opportunity(
     row = db.get(Opportunity, opportunity_id)
     if row is not None and (row.description or row.kind == "expiring_award"):
         summary = _to_summary(row)
-        summary["fit_score"] = fit.score(summary, _lifecycle(db, user))
+        _apply_fit(db, user, [summary], _lifecycle(db, user))
         _maybe_prewarm(
             background, opportunity_id=row.id, description=row.description, user=user
         )
@@ -337,7 +435,7 @@ def get_opportunity(
     except UpstreamError as exc:
         if row is not None:
             summary = _to_summary(row)  # serve stale rather than nothing
-            summary["fit_score"] = fit.score(summary, _lifecycle(db, user))
+            _apply_fit(db, user, [summary], _lifecycle(db, user))
             _maybe_prewarm(
                 background, opportunity_id=row.id, description=row.description, user=user
             )
@@ -347,7 +445,7 @@ def get_opportunity(
     if fetched is None:
         if row is not None:
             summary = _to_summary(row)
-            summary["fit_score"] = fit.score(summary, _lifecycle(db, user))
+            _apply_fit(db, user, [summary], _lifecycle(db, user))
             _maybe_prewarm(
                 background, opportunity_id=row.id, description=row.description, user=user
             )
@@ -356,7 +454,7 @@ def get_opportunity(
 
     fetched["description"] = samgov.fetch_description(fetched.get("_description_url", ""))
     _cache(db, [fetched])
-    fetched["fit_score"] = fit.score(fetched, _lifecycle(db, user))
+    _apply_fit(db, user, [fetched], _lifecycle(db, user))
     _maybe_prewarm(
         background,
         opportunity_id=fetched["id"],

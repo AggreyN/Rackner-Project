@@ -72,7 +72,8 @@ solicited yet. That is the capture window.
 | `days_to_close` | number \| null | server-computed |
 | `est_value` | string \| null | **display string**, e.g. `"$8–12M / 5yr"` |
 | `incumbent` | string \| null | |
-| `fit_score` | number \| null | 0–100 vs. the lifecycle plan; null with no plan on file |
+| `fit_score` | number \| null | 0–100 vs. the lifecycle plan; null with no plan on file (unless a full analysis exists — the researched score is always shown) |
+| `fit_source` | `"estimate"` \| `"analysis"` \| null | `"analysis"` = the user's cached full analysis (card and analysis screen agree); `"estimate"` = metadata-only pre-screen (AI-batched or heuristic). UI renders estimates as approximate. |
 | `expiry_date` | string \| null | `expiring_award` only — current award PoP end |
 | `months_to_expiry` | number \| null | `expiring_award` only — server-computed |
 | `current_award_value` | number \| null | `expiring_award` only — total obligated |

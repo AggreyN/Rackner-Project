@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.deps import current_user, get_db
+from app.models import FitEstimate
 from app.models import LifecycleProfile as LifecycleProfileModel
 from app.models import User
 from app.schemas import LifecycleProfile, Profile
@@ -108,6 +109,14 @@ async def upload_lifecycle_plan(
     row.contract_vehicles = parsed["contract_vehicles"]
     row.size_min = parsed["size_min"]
     row.size_max = parsed["size_max"]
+
+    # A new plan invalidates every cached pre-screen estimate: those scores
+    # were computed against the OLD profile. (Full analyses stay — they are
+    # regenerable verdicts keyed to opportunities, and far too expensive to
+    # discard on every plan tweak.)
+    db.query(FitEstimate).filter(FitEstimate.user_id == user.id).delete(
+        synchronize_session=False
+    )
 
     db.commit()
     db.refresh(row)

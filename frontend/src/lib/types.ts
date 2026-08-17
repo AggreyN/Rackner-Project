@@ -60,6 +60,11 @@ export interface OpportunitySummary {
   incumbent: string | null;
   /** 0–100 compatibility vs. the lifecycle plan; null until a plan is on file. */
   fit_score: number | null;
+  /** Where fit_score came from: "analysis" = the user's cached full analysis
+   *  (card and analysis screen agree); "estimate" = a metadata-only
+   *  pre-screen (AI-batched or heuristic). Render estimates as approximate
+   *  ("~72 est."), never as verdicts. Null when fit_score is null. */
+  fit_source: "estimate" | "analysis" | null;
 
   // --- recompete radar (expiring_award only; null on live solicitations) ---
   /** Period-of-performance end date of the CURRENT award (ISO date).

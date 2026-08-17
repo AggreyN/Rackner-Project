@@ -263,6 +263,71 @@ def analyze(opportunity: dict, lifecycle_profile: dict, sections: list) -> dict:
     }
 
 
+def prescreen_scores(lifecycle_profile: dict, rows: list[dict]) -> dict[str, float]:
+    """Batch-score notice cards against the profile — ONE model call per page.
+
+    Metadata only by design: zero SAM.gov calls, cents per fresh page, and the
+    result is an ESTIMATE (the model has not read the documents). Bedrock mode
+    only — in mock mode this returns {} and the caller keeps the deterministic
+    heuristic (services/fit.py), which is also the fail-soft path when the
+    model call raises. Unknown ids and unparseable scores are dropped; the
+    caller fills gaps with the heuristic.
+    """
+    if config.LLM_MODE != "bedrock" or not rows:
+        return {}
+
+    # Bounded batch: past the cap the caller's heuristic covers the rest.
+    # Unbounded, a 200-row page both truncated the response JSON (losing the
+    # whole batch) and stretched the front-door search latency.
+    if len(rows) > config.FIT_PRESCREEN_MAX_ROWS:
+        logging.getLogger(__name__).warning(
+            "pre-screen capped at %d of %d rows", config.FIT_PRESCREEN_MAX_ROWS, len(rows)
+        )
+        rows = rows[: config.FIT_PRESCREEN_MAX_ROWS]
+
+    slim = [
+        {
+            "id": r.get("id"),
+            "title": r.get("title"),
+            "agency": r.get("agency"),
+            "office": r.get("office"),
+            "naics": r.get("naics"),
+            "set_aside": r.get("set_aside"),
+            "kind": r.get("kind"),
+            "summary": (r.get("description") or "")[:300],
+        }
+        for r in rows
+        if r.get("id")
+    ]
+    from app.llm import bedrock_client
+
+    # The interactive profile fails fast (single attempt, 20s read): this call
+    # sits inside GET /search — a wedged model must cost seconds, not minutes
+    # of held request threads and DB connections.
+    parsed = _parse_json(
+        bedrock_client.invoke(
+            prompts.PRESCREEN_SYSTEM,
+            prompts.prescreen_user_prompt(lifecycle_profile, slim),
+            max_tokens=4096,
+            profile="interactive",
+        )
+    )
+    known = {r.get("id") for r in rows}
+    out: dict[str, float] = {}
+    for item in parsed if isinstance(parsed, list) else []:
+        if not isinstance(item, dict):
+            continue
+        oid = str(item.get("id") or "")
+        if oid not in known:
+            continue  # invented id — drop it
+        try:
+            score = float(item.get("score"))
+        except (TypeError, ValueError):
+            continue
+        out[oid] = round(min(100.0, max(0.0, score)), 1)
+    return out
+
+
 # Tolerates an UNTERMINATED string — that is the truncation case.
 _ANSWER_RE = re.compile(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)')
 

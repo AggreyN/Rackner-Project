@@ -49,7 +49,7 @@ export default function OpportunityCard({ opp }: { opp: OpportunitySummary }) {
           <h4 className="text-[15px] font-semibold leading-snug text-[#16324f]">{opp.title}</h4>
           <div className="mt-0.5 text-xs text-[#51606f]">{agencyLine}</div>
         </div>
-        <ScoreBadge score={opp.fit_score} />
+        <ScoreBadge score={opp.fit_score} source={opp.fit_source} />
       </div>
 
       <p className="mt-2 text-[13px] leading-relaxed text-[#1f2933]">{opp.description}</p>

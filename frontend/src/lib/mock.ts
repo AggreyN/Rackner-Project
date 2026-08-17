@@ -121,6 +121,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$10–15M / 5yr",
     incumbent: "RangeWorks Federal",
     fit_score: 74,
+    fit_source: "estimate",
   },
   {
     ...NO_EXPIRY,
@@ -139,6 +140,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$8–12M / 5yr",
     incumbent: "SmallCyber LLC",
     fit_score: 82,
+    fit_source: "estimate",
   },
   {
     ...NO_EXPIRY,
@@ -156,6 +158,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$4–6M",
     incumbent: null,
     fit_score: 64,
+    fit_source: "estimate",
   },
   {
     ...NO_EXPIRY,
@@ -173,6 +176,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$2M / AOI",
     incumbent: null,
     fit_score: 75,
+    fit_source: "estimate",
   },
   {
     ...NO_EXPIRY,
@@ -191,6 +195,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$30M+",
     incumbent: "BigIntegrator Inc.",
     fit_score: 38,
+    fit_source: "estimate",
   },
 
   // --- recompete radar: existing awards from USAspending, not yet solicited ---
@@ -213,6 +218,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$14M (current award)",
     incumbent: "Vantage Defense Systems",
     fit_score: 79,
+    fit_source: "estimate",
     expiry_date: "2027-09-30",
     months_to_expiry: monthsUntil("2027-09-30"),
     current_award_value: 14_200_000,
@@ -233,6 +239,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$9M (current award)",
     incumbent: "Tidewater Cloud Partners",
     fit_score: 71,
+    fit_source: "estimate",
     expiry_date: "2027-11-30",
     months_to_expiry: monthsUntil("2027-11-30"),
     current_award_value: 8_900_000,
@@ -253,6 +260,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$6M (current award)",
     incumbent: "Northgate Technical",
     fit_score: 68,
+    fit_source: "estimate",
     expiry_date: "2027-08-31",
     months_to_expiry: monthsUntil("2027-08-31"),
     current_award_value: 6_400_000,
@@ -273,6 +281,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$22M (current award)",
     incumbent: "BigIntegrator Inc.",
     fit_score: 34,
+    fit_source: "estimate",
     expiry_date: "2027-10-31",
     months_to_expiry: monthsUntil("2027-10-31"),
     current_award_value: 21_800_000,
@@ -293,6 +302,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$11M (current award)",
     incumbent: "Beacon Federal",
     fit_score: 77,
+    fit_source: "estimate",
     expiry_date: "2028-05-31",
     months_to_expiry: monthsUntil("2028-05-31"),
     current_award_value: 11_300_000,
@@ -313,6 +323,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$5M (current award)",
     incumbent: "Redhorse Cyber",
     fit_score: 72,
+    fit_source: "estimate",
     expiry_date: "2027-03-31",
     months_to_expiry: monthsUntil("2027-03-31"),
     current_award_value: 4_700_000,
@@ -382,7 +393,7 @@ export async function searchOpportunities(
 export async function getSuggested(filters: SearchFilters = {}): Promise<OpportunitySummary[]> {
   const ranked = sortForDisplay(applyFilters(OPPORTUNITIES, filters));
   // No plan on file → nothing to score against.
-  return delay(lifecycle ? ranked : ranked.map((o) => ({ ...o, fit_score: null })));
+  return delay(lifecycle ? ranked : ranked.map((o) => ({ ...o, fit_score: null, fit_source: null })));
 }
 
 export async function getOpportunity(id: string): Promise<OpportunitySummary> {
