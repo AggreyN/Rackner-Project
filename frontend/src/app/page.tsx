@@ -4,8 +4,15 @@
 // radar. Search runs over live SAM.gov solicitations; the timing filter can
 // switch the whole view to EXPIRING AWARDS from USAspending — contracts
 // ending in 12–18 months, which is when capture work actually starts.
+//
+// Navigation model: the URL is the source of truth for what's showing.
+// A search is `/?q=cyber` (+ `&timing=…`), a real browser-history entry —
+// so Back from an opportunity returns to the RESULTS, not a reset home page,
+// and results pages are shareable/refreshable. The re-fetch on Back is free:
+// the backend's search freshness ledger serves repeats from cache.
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import TopBar from "@/components/TopBar";
 import OpportunityCard from "@/components/OpportunityCard";
 import TimingFilter from "@/components/TimingFilter";
@@ -17,15 +24,40 @@ import type {
   SearchFilters,
   TimingPreset,
 } from "@/lib/types";
+import { TIMING_PRESETS } from "@/lib/types";
 
+function presetFromUrl(raw: string | null): TimingPreset {
+  return TIMING_PRESETS.some((p) => p.key === raw) ? (raw as TimingPreset) : "all";
+}
+
+function filtersFor(preset: TimingPreset): SearchFilters {
+  return TIMING_PRESETS.find((p) => p.key === preset)?.filters ?? {};
+}
+
+// useSearchParams requires a Suspense boundary on a prerendered route; the
+// fallback matches the page background so there is no flash.
 export default function Home() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-[#f5f7f9]" />}>
+      <HomeInner />
+    </Suspense>
+  );
+}
+
+function HomeInner() {
   const { ready, email } = useRequireAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // URL-derived view state. `q` present (even empty) means search mode.
+  const urlQuery = searchParams.get("q");
+  const preset = presetFromUrl(searchParams.get("timing"));
+  const searchMode = urlQuery !== null || preset !== "all";
+  const filters = filtersFor(preset);
+
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [query, setQuery] = useState("");
-  const [preset, setPreset] = useState<TimingPreset>("all");
-  const [filters, setFilters] = useState<SearchFilters>({});
+  const [query, setQuery] = useState(urlQuery ?? ""); // input box text
   const [results, setResults] = useState<OpportunitySummary[]>([]);
-  const [searchMode, setSearchMode] = useState(false);
   const [suggested, setSuggested] = useState<OpportunitySummary[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,8 +66,8 @@ export default function Home() {
     if (email) getProfile(email).then(setProfile).catch(() => {});
   }, [email]);
 
-  const loadSuggested = useCallback((f: SearchFilters) => {
-    getSuggested(f)
+  const loadSuggested = useCallback(() => {
+    getSuggested({})
       .then(setSuggested)
       .catch(() => setSuggested([]));
   }, []);
@@ -43,33 +75,56 @@ export default function Home() {
   useEffect(() => {
     if (!ready) return;
     loadProfile();
-    loadSuggested({});
-  }, [ready, loadProfile, loadSuggested]);
+  }, [ready, loadProfile]);
 
-  const runSearch = useCallback(async (q: string, f: SearchFilters) => {
-    setError(null);
-    setSearchMode(true); // switch view first so the skeleton replaces stale cards
-    setBusy(true);
-    try {
-      setResults(await searchOpportunities(q, f));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setResults([]);
-    } finally {
-      setBusy(false);
+  // The URL drives what's on screen. Runs on first load, on every search
+  // submit (router.push), and on Back/Forward — which is exactly what makes
+  // history navigation land on the right view.
+  useEffect(() => {
+    if (!ready) return;
+    setQuery(urlQuery ?? "");
+    if (!searchMode) {
+      loadSuggested();
+      return;
     }
-  }, []);
+    let cancelled = false;
+    setError(null);
+    setBusy(true);
+    searchOpportunities(urlQuery ?? "", filtersFor(preset))
+      .then((rows) => {
+        if (!cancelled) setResults(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+          setResults([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, urlQuery, preset, loadSuggested]);
+
+  /** Push the view into the URL — a history entry the Back button can return to. */
+  function navigate(q: string | null, nextPreset: TimingPreset) {
+    const params = new URLSearchParams();
+    if (q !== null) params.set("q", q);
+    if (nextPreset !== "all") params.set("timing", nextPreset);
+    const qs = params.toString();
+    router.push(qs ? `/?${qs}` : "/");
+  }
 
   // Changing the timing filter re-runs whichever view is showing, so the
   // window applies to search results and suggestions alike.
-  function handlePreset(next: TimingPreset, nextFilters: SearchFilters) {
-    setPreset(next);
-    setFilters(nextFilters);
+  function handlePreset(next: TimingPreset, _nextFilters: SearchFilters) {
     if (searchMode || next !== "all") {
-      void runSearch(query, nextFilters);
+      navigate(urlQuery ?? query, next);
     } else {
-      setSuggested(null);
-      loadSuggested(nextFilters);
+      navigate(null, "all");
     }
   }
 
@@ -84,7 +139,7 @@ export default function Home() {
         onLifecycleUpdated={() => {
           setSuggested(null); // show the skeleton while re-ranking
           loadProfile();
-          loadSuggested(filters);
+          loadSuggested();
         }}
       />
 
@@ -97,7 +152,7 @@ export default function Home() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void runSearch(query, filters);
+            navigate(query, preset);
           }}
           className="mt-4 flex flex-col gap-2.5 sm:flex-row"
         >
@@ -130,17 +185,14 @@ export default function Home() {
                 {busy
                   ? "Searching…"
                   : `${results.length} result${results.length === 1 ? "" : "s"}${
-                      query.trim() ? ` for “${query.trim()}”` : ""
+                      (urlQuery ?? "").trim() ? ` for “${(urlQuery ?? "").trim()}”` : ""
                     }`}
               </h3>
               <button
                 onClick={() => {
-                  setSearchMode(false);
                   setResults([]);
-                  setPreset("all");
-                  setFilters({});
                   setSuggested(null);
-                  loadSuggested({});
+                  navigate(null, "all");
                 }}
                 className="shrink-0 text-xs text-[#16324f] underline underline-offset-2 hover:text-[#0f2438]"
               >
