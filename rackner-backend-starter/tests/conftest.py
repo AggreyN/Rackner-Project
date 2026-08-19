@@ -119,6 +119,31 @@ def _migrated(database_url):
     yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _no_live_gov_calls(_migrated):
+    """The offline suite must never touch live government APIs (audit
+    2026-08-19: search-path tests without explicit stubs were making real
+    USAspending POSTs — 7 tests, 42 network attempts). Tests that need
+    specific behavior monkeypatch over these; the opt-in live suites
+    (RUN_GOV_TESTS=1) get the real functions."""
+    if os.getenv("RUN_GOV_TESTS") == "1":
+        yield
+        return
+    from unittest.mock import patch
+
+    from app.services import usaspending
+
+    real_spend = usaspending.spend_summary
+    with patch.object(usaspending, "expiring_awards", lambda **kw: []), patch.object(
+        usaspending,
+        "spend_summary",
+        lambda opportunity_id, recipient=None, **kw: real_spend(
+            opportunity_id=opportunity_id, recipient=None
+        ),
+    ):
+        yield
+
+
 @pytest.fixture(scope="session")
 def client(_migrated):
     from fastapi.testclient import TestClient
@@ -127,6 +152,24 @@ def client(_migrated):
 
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _clean_search_ledger(_migrated):
+    """The freshness ledger is cross-request state by design — but across
+    TESTS it makes one test's live fetch silently cache-serve the next
+    test's stubbed route. Each test starts with an empty ledger; stamping
+    within a test still works."""
+    from app.database import SessionLocal
+    from app.models import SearchFetch
+
+    db = SessionLocal()
+    try:
+        db.query(SearchFetch).delete()
+        db.commit()
+    finally:
+        db.close()
+    yield
 
 
 @pytest.fixture(scope="session")

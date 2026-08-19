@@ -13,7 +13,7 @@ the quota is torched, and any 429 stops SAM-spending immediately.
 
 Usage (from rackner-backend-starter/):
     ./venv/bin/python scripts/warm_demo_cache.py \
-        --email teamanvil@rackner.com --password 'Anvil-2026' \
+        --email <demo-account-email> --password '<demo-account-password>' \
         --terms cybersecurity devsecops "cloud migration" \
         --details 5 --demo-date 2026-08-28
 

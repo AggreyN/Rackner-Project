@@ -31,7 +31,7 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_MINUTES = int(os.getenv("JWT_EXPIRY_MINUTES", "720"))  # 12h, short-lived
 
 # --- Amazon Cognito (only used when AUTH_MODE=cognito) ---
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-2")
 COGNITO_USER_POOL_ID = get_secret("COGNITO_USER_POOL_ID", "")
 COGNITO_APP_CLIENT_ID = get_secret("COGNITO_APP_CLIENT_ID", "")  # JWT audience
 

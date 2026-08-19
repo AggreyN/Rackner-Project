@@ -27,7 +27,9 @@ export default function ChatPanel({
     setInput("");
     // Snapshot the transcript BEFORE appending this question — these are the
     // prior turns the backend uses to resolve follow-ups.
-    const history = messages;
+    // Synthetic error bubbles are UI chrome, not conversation — sending
+    // them as assistant turns taught the model to apologize for outages.
+    const history = messages.filter((m) => !m.error);
     setMessages((m) => [...m, { role: "user", text: question }]);
     setBusy(true);
     try {
@@ -47,7 +49,7 @@ export default function ChatPanel({
     } catch {
       setMessages((m) => [
         ...m,
-        { role: "assistant", text: "Couldn't reach Anvil — try again." },
+        { role: "assistant", text: "Couldn't reach Anvil — try again.", error: true },
       ]);
     } finally {
       setBusy(false);
@@ -85,7 +87,7 @@ export default function ChatPanel({
                   — cited to{" "}
                   {m.citations.map((c, j) => (
                     <button
-                      key={c.section}
+                      key={`${c.section}-${j}`}
                       // Verified quotes ride the same highlight path as
                       // obligations; unverified ones still jump to the
                       // section but highlight nothing (nothing is grounded).

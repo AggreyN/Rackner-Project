@@ -157,7 +157,12 @@ export async function getAnalysis(id: string): Promise<Analysis> {
   for (;;) {
     const res = await fetch(url, { headers: headers() });
     const generating = res.status === 503 || res.status === 504;
-    if (!generating || Date.now() >= deadline) return json(res);
+    if (Date.now() >= deadline && generating) {
+      throw new Error(
+        "This analysis is taking longer than usual — it keeps generating in the background; reopen the page in a minute."
+      );
+    }
+    if (!generating) return json(res);
     const retryAfter = Number(res.headers.get("retry-after")) || 15;
     await new Promise((r) => setTimeout(r, retryAfter * 1000));
   }

@@ -75,7 +75,9 @@ def _normalize_obligation(raw: dict, *, ob_id: int, section) -> dict:
     ob = dict(_OBLIGATION_DEFAULTS)
     for k in _OBLIGATION_DEFAULTS:
         if raw.get(k) is not None:
-            ob[k] = raw[k]
+            # Coerce: a model emitting a number/list here crashed the WHOLE
+            # analysis after every model call had already been paid for.
+            ob[k] = raw[k] if isinstance(raw[k], str) else str(raw[k])
     if ob["time_bucket"] not in _VALID_TIME_BUCKETS:
         ob["time_bucket"] = "unclear"
 

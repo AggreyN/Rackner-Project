@@ -121,7 +121,7 @@ const OPPORTUNITIES: OpportunitySummary[] = [
     est_value: "$10–15M / 5yr",
     incumbent: "RangeWorks Federal",
     fit_score: 74,
-    fit_source: "estimate",
+    fit_source: "analysis",
   },
   {
     ...NO_EXPIRY,

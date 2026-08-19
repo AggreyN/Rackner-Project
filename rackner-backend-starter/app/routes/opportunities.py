@@ -196,12 +196,8 @@ def _sam_query_key(query: str, sam_kinds: list[str] | None) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _sam_fetch_is_fresh(db: Session, query: str, sam_kinds: list[str] | None) -> bool:
-    row = db.scalar(
-        select(SearchFetch).where(
-            SearchFetch.query_key == _sam_query_key(query, sam_kinds)
-        )
-    )
+def _ledger_is_fresh(db: Session, key: str) -> bool:
+    row = db.scalar(select(SearchFetch).where(SearchFetch.query_key == key))
     if row is None or row.fetched_at is None:
         return False
     fetched = row.fetched_at
@@ -211,8 +207,46 @@ def _sam_fetch_is_fresh(db: Session, query: str, sam_kinds: list[str] | None) ->
     return age.total_seconds() < config.SAM_SEARCH_TTL_HOURS * 3600
 
 
+def _sam_fetch_is_fresh(db: Session, query: str, sam_kinds: list[str] | None) -> bool:
+    return _ledger_is_fresh(db, _sam_query_key(query, sam_kinds))
+
+
+def _usaspending_key(from_m: int, to_m: int) -> str:
+    import hashlib
+
+    return hashlib.sha256(f"usaspending|{from_m}|{to_m}".encode()).hexdigest()
+
+
+def _cached_award_rows(db: Session, from_m: int, to_m: int, limit: int) -> list[dict]:
+    """Replay the recompete radar from cached rows — no live multi-page POSTs.
+
+    Same freshness-ledger pattern as SAM search: USAspending has no quota,
+    but its keyset pagination costs seconds of latency on EVERY dashboard
+    load, and an outage used to blank the radar (now it serves stale)."""
+    today = datetime.date.today()
+    rows = db.scalars(
+        select(Opportunity)
+        .where(Opportunity.kind == "expiring_award", Opportunity.expiry_date.is_not(None))
+        .order_by(Opportunity.fetched_at.desc())
+        .limit(500)
+    ).all()
+    out: list[dict] = []
+    for row in rows:
+        months = round((row.expiry_date - today).days / 30.44)
+        if from_m <= months <= to_m:
+            out.append(_to_summary(row))
+            if len(out) >= limit:
+                break
+    return out
+
+
 def _record_sam_fetch(db: Session, query: str, sam_kinds: list[str] | None) -> None:
     key = _sam_query_key(query, sam_kinds)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    _ledger_stamp(db, key)
+
+
+def _ledger_stamp(db: Session, key: str) -> None:
     now = datetime.datetime.now(datetime.timezone.utc)
     row = db.scalar(select(SearchFetch).where(SearchFetch.query_key == key))
     if row is None:
@@ -322,15 +356,22 @@ def _collect(
                     results.extend(cached)
 
     if wants_expiring:
-        try:
-            expiring = usaspending.expiring_awards(
-                from_months=expiring_from if expiring_from is not None else 12,
-                to_months=expiring_to if expiring_to is not None else 18,
-                limit=limit,
-            )
-        except UpstreamError as exc:
-            failures.append(exc)
-            expiring = []
+        from_m = expiring_from if expiring_from is not None else 12
+        to_m = expiring_to if expiring_to is not None else 18
+        usp_key = _usaspending_key(from_m, to_m)
+        if _ledger_is_fresh(db, usp_key):
+            expiring = _cached_award_rows(db, from_m, to_m, limit)
+        else:
+            try:
+                expiring = usaspending.expiring_awards(
+                    from_months=from_m, to_months=to_m, limit=limit
+                )
+                _ledger_stamp(db, usp_key)
+            except UpstreamError as exc:
+                failures.append(exc)
+                # Serve-stale, like the SAM path — an outage must not blank
+                # the recompete radar.
+                expiring = _cached_award_rows(db, from_m, to_m, limit)
         # USAspending has no free-text search, so apply `q` here — otherwise a
         # text search would return recompete rows about anything, which reads
         # as wrong results rather than a missing filter.

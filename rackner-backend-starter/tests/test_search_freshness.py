@@ -90,10 +90,10 @@ def test_stale_ledger_refreshes_live(client, auth_headers, live_sam):
     client.get("/opportunities/search?q=stale-test", headers=auth_headers)
     db = SessionLocal()
     try:
-        row = db.query(SearchFetch).one()
-        row.fetched_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        stale = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
             hours=config.SAM_SEARCH_TTL_HOURS + 1
         )
+        db.query(SearchFetch).update({SearchFetch.fetched_at: stale})
         db.commit()
     finally:
         db.close()
@@ -178,3 +178,77 @@ def test_closed_notices_do_not_resurface_from_cache(client, auth_headers, live_s
     assert "FRESH-2" in ids, "the open cached row must serve"
     assert "FRESH-1" not in ids, "a notice past its close date must not resurface"
     assert live_sam["n"] == 1, "still zero extra SAM calls"
+
+
+def test_usaspending_is_gated_by_the_same_ledger(client, auth_headers, monkeypatch):
+    """The recompete radar ran live multi-page POSTs on every dashboard load.
+    Same treatment as SAM: one live fetch per window per TTL; repeats replay
+    cached award rows."""
+    from app.services import usaspending
+
+    calls = {"n": 0}
+    expiry = (datetime.date.today() + datetime.timedelta(days=450)).isoformat()
+
+    def fake_awards(**kw):
+        calls["n"] += 1
+        return [
+            {
+                "id": "AWD-FRESH-1",
+                "title": "Expiring cyber support award",
+                "agency": "DoD",
+                "office": None,
+                "solicitation_number": None,
+                "naics": None,
+                "set_aside": None,
+                "kind": "expiring_award",
+                "description": "",
+                "close_date": None,
+                "days_to_close": None,
+                "est_value": "$1M",
+                "incumbent": "Acme",
+                "fit_score": None,
+                "expiry_date": expiry,
+                "months_to_expiry": 15,
+                "current_award_value": 1000000.0,
+            }
+        ]
+
+    monkeypatch.setattr(usaspending, "expiring_awards", fake_awards)
+    for i in range(3):
+        r = client.get(
+            "/opportunities/search?q=&kinds=expiring_award", headers=auth_headers
+        )
+        assert r.status_code == 200
+        assert any(row["id"] == "AWD-FRESH-1" for row in r.json()), f"attempt {i}"
+    assert calls["n"] == 1, "repeat radar loads must replay from cache"
+
+
+def test_usaspending_outage_serves_stale_awards(client, auth_headers, monkeypatch):
+    from app.services import usaspending
+    from app.services.http import UpstreamError
+
+    # Seed a cached award row inside the window (from the previous test's shape).
+    from app.database import SessionLocal
+    from app.models import Opportunity
+
+    db = SessionLocal()
+    try:
+        row = db.get(Opportunity, "AWD-STALE-1") or Opportunity(
+            id="AWD-STALE-1", title="Stale radar award", agency="DoD"
+        )
+        row.kind = "expiring_award"
+        row.expiry_date = datetime.date.today() + datetime.timedelta(days=450)
+        db.add(row)
+        db.commit()
+    finally:
+        db.close()
+
+    def dying(**kw):
+        raise UpstreamError("USAspending", "HTTP 503")
+
+    monkeypatch.setattr(usaspending, "expiring_awards", dying)
+    r = client.get("/opportunities/search?q=&kinds=expiring_award", headers=auth_headers)
+    assert r.status_code == 200
+    assert any(row["id"] == "AWD-STALE-1" for row in r.json()), (
+        "an outage must serve stale radar rows, not a blank panel"
+    )

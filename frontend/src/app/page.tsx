@@ -105,6 +105,7 @@ function HomeInner() {
       });
     return () => {
       cancelled = true;
+      setBusy(false); // leaving search mid-flight must not wedge the button
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, urlQuery, preset, loadSuggested]);

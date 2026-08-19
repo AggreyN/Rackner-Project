@@ -66,9 +66,11 @@ export default function OpportunityCard({ opp }: { opp: OpportunitySummary }) {
           opp.days_to_close !== null && (
             <span>
               ⏱{" "}
-              {opp.kind === "baa"
-                ? `AOI in ${opp.days_to_close} days`
-                : `Closes in ${opp.days_to_close} days`}
+              {opp.days_to_close < 0
+                ? "Closed"
+                : opp.kind === "baa"
+                  ? `AOI in ${opp.days_to_close} days`
+                  : `Closes in ${opp.days_to_close} days`}
             </span>
           )
         )}

@@ -231,6 +231,8 @@ export interface ChatAnswer {
 }
 
 export interface ChatMessage {
+  /** UI-only: marks a synthetic error bubble; never sent to the backend. */
+  error?: boolean;
   role: "user" | "assistant";
   text: string;
   citations?: ChatCitation[];
