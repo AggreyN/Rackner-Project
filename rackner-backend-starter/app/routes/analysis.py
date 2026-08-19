@@ -124,7 +124,9 @@ def _opportunity_dict(opp: Opportunity) -> dict:
 def _to_schema(row: AnalysisModel) -> Analysis:
     return Analysis(
         opportunity_id=row.opportunity_id,
-        score=row.score,
+        # Clamp on read too: rows persisted before the write-side clamp must
+        # serve, not 500 forever.
+        score=min(100.0, max(0.0, row.score)),
         band=row.band,
         verdict=row.verdict or "",
         factors=row.factors or [],
@@ -188,14 +190,22 @@ def ensure_analysis(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
 
 def _generate_and_store(db: Session, opp: Opportunity, user: User) -> AnalysisModel:
     doc = get_or_build_document(db, opp)
-    had_sections = bool(doc.sections)
+    # Materialize everything the model needs as plain data, then COMMIT to
+    # end the transaction and release this session's pooled connection —
+    # generation runs for minutes, and ~15 concurrently held connections
+    # (pool_size+overflow) meant sitewide 500s (audit 2026-08-19).
+    sections = [
+        {"ref": sec.ref, "page": sec.page, "text": sec.text} for sec in doc.sections
+    ]
+    had_sections = bool(sections)
     # Identity of the build this analysis grounds against. id alone is not
     # enough — SQLite reuses rowids after delete+insert — but a rebuilt row
     # always carries a new created_at.
     build_identity = (doc.id, doc.created_at)
-    result = gateway.analyze(
-        _opportunity_dict(opp), _lifecycle_dict(db, user), doc.sections
-    )
+    opp_dict = _opportunity_dict(opp)
+    profile_dict = _lifecycle_dict(db, user)
+    db.commit()  # release the connection for the duration of the model call
+    result = gateway.analyze(opp_dict, profile_dict, sections)
 
     row = AnalysisModel(
         opportunity_id=opp.id,

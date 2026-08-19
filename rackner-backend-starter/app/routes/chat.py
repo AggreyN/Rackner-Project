@@ -67,8 +67,14 @@ def ask(
         )
 
     history = [t.model_dump() for t in trim_history(body.history)]
+    # Materialize sections and release the pooled connection before the model
+    # call — chat turns run seconds-to-minutes and must not hold the pool.
+    sections = [
+        {"ref": sec.ref, "page": sec.page, "text": sec.text} for sec in doc.sections
+    ]
+    db.commit()
     try:
-        return ChatAnswer(**gateway.answer_question(question, doc.sections, history))
+        return ChatAnswer(**gateway.answer_question(question, sections, history))
     except HTTPException:
         raise
     except Exception:

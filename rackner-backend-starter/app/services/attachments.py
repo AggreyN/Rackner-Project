@@ -37,6 +37,17 @@ def _is_rate_limited(exc: UpstreamError) -> bool:
     return exc.detail.startswith("HTTP 429")
 
 
+def _is_permanent(exc: UpstreamError) -> bool:
+    """Only failures that retrying can NEVER fix resolve a link: 4xx (bad
+    link, forbidden — except 429) and the size cap. Timeouts, 5xx and
+    connection errors are transient — treating them as resolved froze
+    documents partial-forever (audit 2026-08-19)."""
+    detail = exc.detail or ""
+    if detail.startswith("HTTP 4") and not detail.startswith("HTTP 429"):
+        return True
+    return "exceeds the" in detail  # size cap: the file won't shrink
+
+
 def _looks_ingestible(blob: bytes) -> bool:
     """PDF by magic number, or plausibly text (UTF-8 aware — a non-ASCII SOW
     is still text). Everything else is skipped."""
@@ -77,6 +88,7 @@ def fetch_all(links: list[str] | None) -> tuple[list[bytes], bool]:
     total_cap = config.SAM_ATTACHMENTS_TOTAL_MB * 1024 * 1024
     blobs: list[bytes] = []
     total = 0
+    transient_failure = False
     for url in capped:
         if total >= total_cap:
             log.warning("attachment total size cap reached; remaining files skipped")
@@ -93,11 +105,19 @@ def fetch_all(links: list[str] | None) -> tuple[list[bytes], bool]:
             if _is_rate_limited(exc):
                 log.warning("SAM quota spent mid-fetch; stopping attachment downloads")
                 return blobs, False
-            log.info("attachment skipped (%s): %s", exc.detail, url[:120])
+            if _is_permanent(exc):
+                log.info("attachment skipped permanently (%s): %s", exc.detail, url[:120])
+            else:
+                transient_failure = True
+                log.warning(
+                    "attachment failed transiently (%s), will retry on a later read: %s",
+                    exc.detail,
+                    url[:120],
+                )
             continue
         if not _looks_ingestible(blob):
             log.info("attachment skipped (unsupported format): %s", url[:120])
             continue
         blobs.append(blob)
         total += len(blob)
-    return blobs, True
+    return blobs, not transient_failure

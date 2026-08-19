@@ -13,6 +13,7 @@ UpstreamError, which routes translate to 503 with the service named.
 from __future__ import annotations
 
 import logging
+import re
 
 import requests
 from tenacity import (
@@ -33,6 +34,16 @@ DEFAULT_TIMEOUT = (5, 30)
 # fix — retrying it three times turned a fast failure into a measured 47-51s
 # hang before the same error. Fail fast and let the route degrade.
 _RETRY_STATUS = {500, 502, 503, 504}
+
+
+# requests exceptions embed the full URL — including ?api_key=… — and those
+# strings flow into UpstreamError.detail, which reaches 503 response bodies
+# and logs. Secret NAMES may appear in logs; secret VALUES must never.
+_KEY_PARAM = re.compile(r"(api_key=)[^&\s'\"]+", re.IGNORECASE)
+
+
+def redact(text: str) -> str:
+    return _KEY_PARAM.sub(r"\1[redacted]", text or "")
 
 
 class UpstreamError(RuntimeError):
@@ -64,7 +75,7 @@ def _request(method: str, url: str, *, service: str, timeout, **kwargs):
     except requests.Timeout as exc:
         raise _Retryable(f"timeout after {timeout}s") from exc
     except requests.RequestException as exc:
-        raise _Retryable(str(exc)) from exc
+        raise _Retryable(redact(str(exc))) from exc
 
     if response.status_code in _RETRY_STATUS:
         raise _Retryable(f"HTTP {response.status_code}")
@@ -76,7 +87,7 @@ def _call(method: str, url: str, *, service: str, timeout=DEFAULT_TIMEOUT, **kwa
         response = _request(method, url, service=service, timeout=timeout, **kwargs)
     except _Retryable as exc:
         log.warning("%s unavailable: %s", service, exc)
-        raise UpstreamError(service, str(exc)) from exc
+        raise UpstreamError(service, redact(str(exc))) from exc
 
     if not response.ok:
         # Non-retryable: a bad key, a bad query, a missing record, a spent quota.
@@ -128,7 +139,7 @@ def get_bytes(
                 chunks.append(chunk)
             return b"".join(chunks)
     except requests.RequestException as exc:
-        raise UpstreamError(service, str(exc)) from exc
+        raise UpstreamError(service, redact(str(exc))) from exc
 
 
 def post_json(url: str, *, service: str, json=None, timeout=DEFAULT_TIMEOUT) -> dict:

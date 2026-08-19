@@ -38,7 +38,7 @@ export default function ScoreBadge({ score, source }: Props) {
         title="Quick estimate from the notice card — open the opportunity for the full analysis"
         data-testid="fit-estimate"
         className="flex h-[54px] w-[54px] shrink-0 flex-col items-center justify-center rounded-full border-2 border-dashed bg-white font-bold"
-        style={{ borderColor: bandColor(score), color: bandColor(score) }}
+        style={{ borderColor: bandColor(Math.round(score)), color: bandColor(Math.round(score)) }}
       >
         <span className="text-base leading-none">~{Math.round(score)}</span>
         <span className="mt-0.5 text-[8px] font-semibold uppercase opacity-85">est.</span>
@@ -50,7 +50,7 @@ export default function ScoreBadge({ score, source }: Props) {
       title="Score from your full analysis of this opportunity"
       data-testid="fit-analyzed"
       className="flex h-[54px] w-[54px] shrink-0 flex-col items-center justify-center rounded-full font-bold text-white"
-      style={{ backgroundColor: bandColor(score) }}
+      style={{ backgroundColor: bandColor(Math.round(score)) }}
     >
       <span className="text-base leading-none">{Math.round(score)}</span>
       <span className="mt-0.5 text-[8px] font-semibold uppercase opacity-85">fit</span>

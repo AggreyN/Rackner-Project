@@ -250,7 +250,10 @@ def analyze(opportunity: dict, lifecycle_profile: dict, sections: list) -> dict:
 
     factors = [f for f in (_normalize_factor(r) for r in raw_factors) if f]
     obligations = extract_obligations(sections)
-    score = _score(factors)
+    # The wire contract is 0-100; a wild factor slipping through must clamp
+    # HERE — persisted out-of-range scores 500'd every later read of that
+    # analysis (audit 2026-08-19).
+    score = round(min(100.0, max(0.0, _score(factors))), 1)
 
     return {
         "opportunity_id": opportunity.get("id"),
@@ -344,11 +347,11 @@ def _salvage_answer(raw: str) -> str:
     if match:
         fragment = match.group(1).rstrip("\\")
         try:
-            return json.loads(f'"{fragment}"')
+            text = json.loads(f'"{fragment}"')
         except ValueError:
             text = fragment.replace("\\n", "\n").replace('\\"', '"')
-            if text.strip():
-                return text
+        if text.strip():  # an empty salvaged answer is still a blank bubble
+            return text
     return (
         "I had trouble composing that answer — please ask again, or make the "
         "question more specific."

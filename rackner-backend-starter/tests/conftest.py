@@ -52,6 +52,14 @@ os.environ["AUTH_MODE"] = "local"
 # offline suite — the live path has its own opt-in file (test_textract_live).
 os.environ["OCR_MODE"] = "off"
 os.environ["STORAGE_BACKEND"] = "local"
+# Never let a dev .env leak REAL keys, prod secrets, or tuned knobs into the
+# offline suite (audit 2026-08-19): a placeholder SAM key (stubs override it),
+# dev secrets mode, a nonexistent config secret, and default cache knobs.
+os.environ["APP_ENV"] = "dev"
+os.environ["SAM_GOV_API_KEY"] = "test-not-a-real-key"
+os.environ["CONFIG_SECRET_NAME"] = "test-nonexistent-secret"
+os.environ["SAM_SEARCH_TTL_HOURS"] = "12"
+os.environ["LLM_EXTRACT_CONCURRENCY"] = "8"
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 os.environ.setdefault("JWT_SECRET", "test-only-secret-not-a-real-key")
 

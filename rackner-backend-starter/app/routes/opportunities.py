@@ -112,7 +112,23 @@ def _cache(db: Session, summaries: list[dict]) -> None:
         # key, and blanking links would orphan an already-built full document.
         if s.get("_resource_links"):
             row.resource_links = s["_resource_links"]
-    db.commit()
+        # A live fetch that returns this row makes it fresh NOW — without this
+        # the dashboard replay's freshness-window filter dropped rows a live
+        # refresh had just paid for (audit 2026-08-19).
+        row.fetched_at = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two identical searches raced the same INSERTs. Retry once: the
+        # second pass sees the winner's rows via db.get and updates them.
+        db.rollback()
+        for s in summaries:
+            if not s.get("id"):
+                continue
+            if db.get(Opportunity, s["id"]) is None:
+                db.add(Opportunity(id=s["id"], title=s.get("title") or "",
+                                   agency=s.get("agency") or ""))
+        db.commit()
 
 
 def _to_summary(row: Opportunity, today: datetime.date | None = None) -> dict:
@@ -151,6 +167,19 @@ def _clean(summaries: list[dict]) -> list[OpportunitySummary]:
         OpportunitySummary(**{k: v for k, v in s.items() if not k.startswith("_")})
         for s in summaries
     ]
+
+
+def _row_recently_fetched(row: Opportunity) -> bool:
+    """A notice with a GENUINELY empty description used to refetch SAM (2
+    calls) on every detail view forever. If we fetched it live recently,
+    serve it as-is; retry only once the freshness window lapses."""
+    fetched = row.fetched_at
+    if fetched is None:
+        return False
+    if fetched.tzinfo is None:  # SQLite round-trips naive datetimes
+        fetched = fetched.replace(tzinfo=datetime.timezone.utc)
+    age = datetime.datetime.now(datetime.timezone.utc) - fetched
+    return age.total_seconds() < config.SAM_SEARCH_TTL_HOURS * 3600
 
 
 def _sam_query_key(query: str, sam_kinds: list[str] | None) -> str:
@@ -500,7 +529,11 @@ def get_opportunity(
     round-trip per notice, and it is what /document grounds obligations in.
     """
     row = db.get(Opportunity, opportunity_id)
-    if row is not None and (row.description or row.kind == "expiring_award"):
+    if row is not None and (
+        row.description
+        or row.kind == "expiring_award"
+        or _row_recently_fetched(row)
+    ):
         summary = _to_summary(row)
         _apply_fit(db, user, [summary], _lifecycle(db, user))
         _maybe_prewarm(
