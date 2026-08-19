@@ -34,6 +34,9 @@ class User(BaseModel):
     email: str
     org: str = ""
     initials: str = ""
+    # Display name for "Welcome, {username}". Mirrors Cognito's `name`
+    # attribute; null falls back to the email local-part in the UI.
+    username: Optional[str] = None
 
 
 class LifecycleProfile(BaseModel):

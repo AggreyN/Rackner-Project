@@ -25,6 +25,7 @@ pre-formatted display string (see note below).
 | `email` | string | |
 | `org` | string | e.g. `"rackner.com"` — derived from the email domain |
 | `initials` | string | for the avatar chip |
+| `username` | string \| null | display name ("Welcome, {username}") — mirrors Cognito's `name` attribute; null falls back to the email local-part |
 
 ### LifecycleProfile
 Parsed from the user's uploaded Opportunity Lifecycle plan. Powers compatibility
@@ -249,6 +250,7 @@ Unverified quotes still jump to the section but highlight nothing.
 | POST | `/auth/login` | `{access_token}` — exact key |
 | GET | `/profile` | Profile |
 | POST | `/profile/lifecycle` | LifecycleProfile — **multipart** file upload |
+| DELETE | `/profile/lifecycle` | 204 — removes the plan, its S3 object, and everything scored against it (estimates + analyses). 404 with no plan on file. UI does not call it yet. |
 | GET | `/opportunities/search?q=&kinds=&expiring_from=&expiring_to=` | OpportunitySummary[] |
 | GET | `/opportunities/suggested?kinds=&expiring_from=&expiring_to=` | OpportunitySummary[] |
 | GET | `/opportunities/{id}` | OpportunitySummary |

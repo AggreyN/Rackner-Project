@@ -61,9 +61,15 @@ export async function getProfile(email: string): Promise<Profile> {
       email,
       org: "rackner.com",
       initials: name.slice(0, 1).toUpperCase() || "R",
+      username: name.charAt(0).toUpperCase() + name.slice(1),
     },
     lifecycle,
   });
+}
+
+export async function deleteLifecyclePlan(): Promise<void> {
+  lifecycle = null;
+  return delay(undefined);
 }
 
 export async function uploadLifecyclePlan(file: File): Promise<LifecycleProfile> {

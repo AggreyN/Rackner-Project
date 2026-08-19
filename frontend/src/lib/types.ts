@@ -13,6 +13,9 @@ export interface User {
   email: string;
   org: string; // e.g. "rackner.com"
   initials: string;
+  /** Display name ("Welcome, {username}") — mirrors Cognito's `name`
+   *  attribute; null falls back to the email local-part. */
+  username: string | null;
 }
 
 /** Parsed "fit profile" from the uploaded Opportunity Lifecycle plan.

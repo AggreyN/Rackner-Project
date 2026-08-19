@@ -84,6 +84,26 @@ def get(key: str) -> bytes:
     return _local_path(key).read_bytes()
 
 
+def delete(key: str) -> None:
+    """Best-effort removal of a stored object. Failures are logged, never
+    raised — an orphaned blob is a cleanup nit; blocking a profile deletion
+    on it would be backwards."""
+    import logging
+
+    log = logging.getLogger(__name__)
+    try:
+        if config.STORAGE_BACKEND == "s3":
+            import boto3
+
+            boto3.client("s3", region_name=config.AWS_REGION).delete_object(
+                Bucket=config.S3_BUCKET, Key=key
+            )
+        else:
+            _local_path(key).unlink(missing_ok=True)
+    except Exception as exc:  # noqa: BLE001 — cleanup must not block
+        log.warning("could not delete stored object %s: %s", key, exc)
+
+
 def url(key: str, *, expires_in: int = 900) -> str:
     """A presigned GET in S3 mode; a plain path in local mode."""
     if config.STORAGE_BACKEND == "s3":

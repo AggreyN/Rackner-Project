@@ -43,6 +43,11 @@ class User(Base):
     cognito_sub: Mapped[str | None] = mapped_column(String(255), unique=True)
     # Set in local demo mode only (bcrypt hash); null in Cognito mode.
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    # Display name ("Welcome, {username}"). In Cognito mode this mirrors the
+    # pool's `name` attribute (synced from ID-token claims on every request);
+    # set it with scripts/set_cognito_username.sh. Null falls back to the
+    # email local-part in the UI.
+    display_name: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )

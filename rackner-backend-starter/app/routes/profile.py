@@ -29,10 +29,16 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 def _user_schema(user: User) -> UserSchema:
     email = user.email or ""
     local, _, domain = email.partition("@")
-    # "aggrey.narh" -> "AN"; falls back to the first letter.
-    parts = [p for p in local.replace("_", ".").split(".") if p]
-    initials = "".join(p[0] for p in parts[:2]).upper() or (email[:1].upper() or "?")
-    return UserSchema(email=email, org=domain, initials=initials)
+    username = (getattr(user, "display_name", None) or "").strip() or None
+    if username:
+        # Initials from the display name: "Team Anvil" -> "TA".
+        words = [w for w in username.split() if w]
+        initials = "".join(w[0] for w in words[:2]).upper()
+    else:
+        # "aggrey.narh" -> "AN"; falls back to the first letter.
+        parts = [p for p in local.replace("_", ".").split(".") if p]
+        initials = "".join(p[0] for p in parts[:2]).upper() or (email[:1].upper() or "?")
+    return UserSchema(email=email, org=domain, initials=initials, username=username)
 
 
 def _profile_schema(row: LifecycleProfileModel | None) -> LifecycleProfile | None:
@@ -64,6 +70,30 @@ def get_profile(
     return Profile(
         user=_user_schema(user), lifecycle=_profile_schema(_current_plan(db, user))
     )
+
+
+@router.delete("/profile/lifecycle", status_code=status.HTTP_204_NO_CONTENT)
+def delete_lifecycle_plan(
+    db: Session = Depends(get_db), user: User = Depends(current_user)
+) -> None:
+    """Remove the user's plan and everything scored against it.
+
+    Same invalidation semantics as replacing the plan: estimates and analyses
+    computed against a profile that no longer exists are meaningless. The S3
+    object is removed best-effort (an orphan is a nit, not a blocker)."""
+    row = _current_plan(db, user)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No lifecycle plan on file.")
+    if row.source_s3_key:
+        storage.delete(row.source_s3_key)
+    db.query(FitEstimate).filter(FitEstimate.user_id == user.id).delete(
+        synchronize_session=False
+    )
+    db.query(Analysis).filter(Analysis.user_id == user.id).delete(
+        synchronize_session=False
+    )
+    db.delete(row)
+    db.commit()
 
 
 @router.post("/profile/lifecycle", response_model=LifecycleProfile)

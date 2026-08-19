@@ -89,6 +89,16 @@ export async function getProfile(email: string): Promise<Profile> {
   return json(await fetch(`${BASE}/profile`, { headers: headers() }));
 }
 
+export async function deleteLifecyclePlan(): Promise<void> {
+  if (USE_MOCK) return mock.deleteLifecyclePlan();
+  const res = await fetch(`${BASE}/profile/lifecycle`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (res.status === 404) return; // already gone — same end state
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+}
+
 export async function uploadLifecyclePlan(file: File): Promise<LifecycleProfile> {
   if (USE_MOCK) return mock.uploadLifecyclePlan(file);
   const form = new FormData();

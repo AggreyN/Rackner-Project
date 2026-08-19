@@ -77,4 +77,16 @@ test.describe("home", () => {
       "Cloud Migration & DevSecOps Engineering"
     );
   });
+
+  test("top bar greets the user by name", async ({ page }) => {
+    await expect(page.getByTestId("welcome")).toHaveText("Welcome, Remy");
+  });
+
+  test("the lifecycle plan can be removed, with confirmation", async ({ page }) => {
+    await page.getByRole("button", { name: "✓ Lifecycle plan on file" }).click();
+    page.on("dialog", (d) => d.accept());
+    await page.getByRole("button", { name: "Remove plan" }).click();
+    // The chip flips to the add state once the plan is gone.
+    await expect(page.getByRole("button", { name: "Add lifecycle plan" })).toBeVisible();
+  });
 });

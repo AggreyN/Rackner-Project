@@ -236,3 +236,74 @@ def test_recently_fetched_empty_description_row_skips_sam(client, auth_headers, 
         r = client.get("/opportunities/AUDIT-EMPTYDESC", headers=auth_headers)
         assert r.status_code == 200
     assert calls["n"] == 0, "a recently fetched row must serve stale, not respend SAM"
+
+
+def test_delete_lifecycle_plan_removes_plan_and_scores(client, auth_headers):
+    import io
+
+    from app.models import FitEstimate, User
+
+    r = client.post(
+        "/profile/lifecycle",
+        headers=auth_headers,
+        files={"file": ("plan.txt", io.BytesIO(b"Capabilities: cyber\nNAICS: 541512\n"), "text/plain")},
+    )
+    assert r.status_code == 200
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(email="pytest@rackner.com").one()
+        opp = db.get(Opportunity, "AUDIT-DEL") or Opportunity(id="AUDIT-DEL", title="t", agency="DoD")
+        db.add(opp)
+        db.commit()  # FK target must exist before the estimate row (Postgres enforces)
+        db.add(FitEstimate(user_id=user.id, opportunity_id="AUDIT-DEL", score=50.0))
+        db.commit()
+        uid = user.id
+    finally:
+        db.close()
+
+    r = client.delete("/profile/lifecycle", headers=auth_headers)
+    assert r.status_code == 204
+
+    prof = client.get("/profile", headers=auth_headers).json()
+    assert prof["lifecycle"] is None, "the plan must be gone"
+
+    db = SessionLocal()
+    try:
+        assert db.query(FitEstimate).filter_by(user_id=uid).count() == 0
+        assert db.query(Analysis).filter_by(user_id=uid).count() == 0
+    finally:
+        db.close()
+
+    r = client.delete("/profile/lifecycle", headers=auth_headers)
+    assert r.status_code == 404, "deleting a non-existent plan is a clean 404"
+
+
+# --- usernames: Cognito name claim -> display_name -> profile ----------------------
+
+
+def test_cognito_name_claim_syncs_to_profile(client, auth_headers, monkeypatch):
+    from app import auth as auth_module
+    from app.database import SessionLocal
+    from app.models import User
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(email="pytest@rackner.com").one()
+        claims = {"sub": "test-sub-username", "email": user.email, "name": "Py Test"}
+        auth_module._upsert_cognito_user(claims, db)
+        db.refresh(user)
+        assert user.display_name == "Py Test"
+
+        # Renaming in the pool updates on the next request; same name is a no-op.
+        auth_module._upsert_cognito_user({**claims, "name": "Py T. Renamed"}, db)
+        db.refresh(user)
+        assert user.display_name == "Py T. Renamed"
+    finally:
+        user.display_name = "Py Test"  # leave deterministic state
+        db.commit()
+        db.close()
+
+    prof = client.get("/profile", headers=auth_headers).json()
+    assert prof["user"]["username"] == "Py Test"
+    assert prof["user"]["initials"] == "PT", "initials come from the display name"

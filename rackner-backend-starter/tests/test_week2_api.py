@@ -95,7 +95,7 @@ def test_get_profile(client, auth_headers):
     assert r.status_code == 200, r.text
     p = r.json()
     assert set(p) == {"user", "lifecycle"}
-    assert set(p["user"]) == {"email", "org", "initials"}
+    assert set(p["user"]) == {"email", "org", "initials", "username"}
     assert p["user"]["org"] == "rackner.com"
     assert p["lifecycle"] is not None
 

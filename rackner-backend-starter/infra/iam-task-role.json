@@ -34,7 +34,7 @@
     {
       "Sid": "LifecyclePlanObjects",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       "Resource": "arn:aws:s3:::rackner-fdi-docs-720682843719-us-east-2-an/lifecycle/*"
     },
     {
