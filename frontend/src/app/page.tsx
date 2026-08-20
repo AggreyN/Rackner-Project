@@ -9,6 +9,8 @@ import { useCallback, useEffect, useState } from "react";
 import TopBar from "@/components/TopBar";
 import OpportunityCard from "@/components/OpportunityCard";
 import TimingFilter from "@/components/TimingFilter";
+import ImportPdf from "@/components/ImportPdf";
+import SavedDrawer from "@/components/SavedDrawer";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { getProfile, getSuggested, searchOpportunities } from "@/lib/api";
 import type {
@@ -117,6 +119,7 @@ export default function Home() {
           >
             {busy ? "Searching…" : "Search"}
           </button>
+          <ImportPdf />
         </form>
 
         <TimingFilter active={preset} onChange={handlePreset} />
@@ -147,6 +150,12 @@ export default function Home() {
                 Clear
               </button>
             </div>
+            {!profile?.lifecycle && !busy && results.length > 0 && (
+              <p className="mb-3 text-xs text-[#51606f]" data-testid="neutral-note">
+                Neutral results — no lifecycle plan on file, so nothing is scored or ranked by
+                fit.
+              </p>
+            )}
             {/* Stale results must not linger under a new filter — swap to
                 skeletons so what's on screen always matches the active window. */}
             {busy ? (
@@ -198,6 +207,8 @@ export default function Home() {
           </section>
         )}
       </div>
+
+      <SavedDrawer />
     </main>
   );
 }

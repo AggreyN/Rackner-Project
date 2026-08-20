@@ -98,6 +98,34 @@ export async function uploadLifecyclePlan(file: File): Promise<LifecycleProfile>
   );
 }
 
+/** Removing the plan puts every list into neutral mode — no fit scores,
+ *  because there is nothing to score against.
+ *  Expected backend route: DELETE /profile/lifecycle → 204. */
+export async function deleteLifecyclePlan(): Promise<void> {
+  if (USE_MOCK) return mock.deleteLifecycle();
+  await json(
+    await fetch(`${BASE}/profile/lifecycle`, { method: "DELETE", headers: headers() })
+  );
+}
+
+/** Import a contract PDF that isn't on SAM.gov. The backend runs the same
+ *  pipeline as a SAM pull (pdf_to_text → split_sections → analysis with
+ *  quote verification) and returns the new opportunity.
+ *  Expected backend route: POST /opportunities/import (multipart: file)
+ *  → OpportunitySummary. */
+export async function importOpportunityPdf(file: File): Promise<OpportunitySummary> {
+  if (USE_MOCK) return mock.importPdf(file);
+  const form = new FormData();
+  form.append("file", file);
+  return json(
+    await fetch(`${BASE}/opportunities/import`, {
+      method: "POST",
+      headers: headers(),
+      body: form,
+    })
+  );
+}
+
 // ---------- opportunities ----------
 
 /** Serializes SearchFilters into the query params the backend expects.

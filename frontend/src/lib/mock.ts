@@ -376,7 +376,10 @@ export async function searchOpportunities(
 
   // A filter that legitimately matches nothing must return nothing — falling
   // back to "everything" here would quietly lie about the window.
-  return delay(sortForDisplay(terms.length === 0 ? scoped : hits), 600);
+  const out = sortForDisplay(terms.length === 0 ? scoped : hits);
+  // No lifecycle plan on file → search is NEUTRAL: there is nothing to score
+  // against, so showing a number would be an invented ranking.
+  return delay(lifecycle ? out : out.map((o) => ({ ...o, fit_score: null })), 600);
 }
 
 export async function getSuggested(filters: SearchFilters = {}): Promise<OpportunitySummary[]> {
@@ -1458,3 +1461,155 @@ CONTACTS["navy-pcte-0118"] = {
   confidence: 0.85,
   active_solicitation: true,
 };
+
+// ---------- lifecycle removal (neutral mode) ----------
+
+export async function deleteLifecycle(): Promise<void> {
+  // With no plan on file, every list goes score-neutral (fit_score: null)
+  // until a new plan is uploaded — the UI's "—" badge state.
+  lifecycle = null;
+  return delay(undefined, 300);
+}
+
+// ---------- PDF import (contracts not on SAM.gov) ----------
+//
+// The real backend runs the SAME pipeline as a SAM.gov pull: pdf_to_text →
+// split_sections → LLM analysis with quote verification. The mock cannot
+// parse PDF bytes in the browser, so it fabricates a plausible parsed
+// package from the filename — every quote still an exact substring of its
+// section, so click-to-cite behaves exactly like production.
+
+let importCounter = 0;
+
+export async function importPdf(file: File): Promise<OpportunitySummary> {
+  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+    throw new Error("Upload a PDF — other formats aren't supported yet.");
+  }
+
+  importCounter += 1;
+  const id = `imported-${importCounter}`;
+  const title = file.name.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ").trim() || "Imported contract";
+
+  const quotes = {
+    submit:
+      "Proposals shall be submitted to the point of contact identified herein no later than the closing date stated on the cover page.",
+    perform:
+      "The Contractor shall perform all requirements described in the attached Statement of Work for the full period of performance.",
+    report:
+      "The Contractor shall deliver a monthly progress report no later than the tenth day of each month.",
+  };
+
+  DOCUMENTS[id] = {
+    opportunity_id: id,
+    label: `Imported document · ${file.name}`,
+    sections: [
+      {
+        ref: "0",
+        heading: "Preamble",
+        page: 1,
+        text: `This document was imported directly (${Math.max(1, Math.round(file.size / 1024))} KB) rather than pulled from SAM.gov. Parsed once, cited like any other package.`,
+      },
+      {
+        ref: "C.1",
+        heading: "C.1 — SCOPE OF WORK",
+        page: 2,
+        text: `C.1 Scope. ${quotes.perform} All work shall conform to the standards referenced herein.`,
+      },
+      {
+        ref: "F.1",
+        heading: "F.1 — DELIVERABLES",
+        page: 4,
+        text: `F.1 Reporting. ${quotes.report} Reports shall include progress, risks, and planned activities.`,
+      },
+      {
+        ref: "L.1",
+        heading: "L.1 — SUBMISSION",
+        page: 6,
+        text: `L.1 Submission. ${quotes.submit} Late submissions will be handled per the terms on the cover page.`,
+      },
+    ],
+  };
+
+  const scored = lifecycle !== null;
+  ANALYSES[id] = {
+    opportunity_id: id,
+    score: scored ? 61 : 0,
+    band: "conditional",
+    verdict: scored
+      ? "Conditional — imported document, verify scope details"
+      : "Unscored — upload a lifecycle plan to score fit",
+    factors: scored
+      ? [
+          { key: "mission", label: "Strategic / mission alignment", weight: 0.15, score: 3.2, rationale: "Imported document; alignment inferred from scope text only.", citation: { section: "§C.1", page: 2 } },
+          { key: "technical", label: "Technical & domain capability", weight: 0.2, score: 3.4, rationale: "Scope maps partially to lifecycle capabilities.", citation: { section: "§C.1", page: 2 } },
+          { key: "past_perf", label: "Past-performance relevance", weight: 0.15, score: 3.0, rationale: "No agency history available for an imported document.", citation: null },
+          { key: "vehicle", label: "Contract-vehicle access", weight: 0.1, score: 3.0, rationale: "Vehicle not stated in the imported text.", citation: null },
+          { key: "set_aside", label: "Set-aside eligibility", weight: 0.1, score: 3.0, rationale: "No set-aside detected in the document.", citation: null },
+          { key: "incumbent", label: "Incumbent advantage (inverse)", weight: 0.1, score: 3.0, rationale: "Incumbent unknown for imported documents.", citation: null },
+          { key: "pricing", label: "Pricing / size fit", weight: 0.1, score: 3.0, rationale: "No value stated in the imported text.", citation: null },
+          { key: "time", label: "Time to respond / shape", weight: 0.1, score: 3.0, rationale: "Closing date referenced on the cover page only.", citation: { section: "§L.1", page: 6 } },
+        ]
+      : [],
+    obligations: [
+      {
+        id: 1,
+        text: "Submit proposal by the closing date on the cover page",
+        obligation_type: "submission",
+        time_bucket: "unclear",
+        deadline_label: "See cover page",
+        verbatim_quote: quotes.submit,
+        citation: { section: "§L.1", page: 6 },
+        verified: true,
+      },
+      {
+        id: 2,
+        text: "Perform the full Statement of Work for the period of performance",
+        obligation_type: "performance",
+        time_bucket: "ongoing",
+        deadline_label: "Ongoing",
+        verbatim_quote: quotes.perform,
+        citation: { section: "§C.1", page: 2 },
+        verified: true,
+      },
+      {
+        id: 3,
+        text: "Deliver a monthly progress report by the 10th",
+        obligation_type: "reporting",
+        time_bucket: "quarterly",
+        deadline_label: "Monthly · 10th",
+        verbatim_quote: quotes.report,
+        citation: { section: "§F.1", page: 4 },
+        verified: true,
+      },
+    ],
+  };
+
+  SPEND[id] = {
+    opportunity_id: id,
+    years: [],
+    total_obligated: 0,
+    incumbent: null,
+    trend_pct: null,
+  };
+
+  const summary: OpportunitySummary = {
+    ...NO_EXPIRY,
+    id,
+    title,
+    agency: "Imported document",
+    office: null,
+    solicitation_number: null,
+    naics: null,
+    set_aside: null,
+    kind: "solicitation",
+    description: `Imported from ${file.name} — analyzed with the same pipeline as SAM.gov pulls.`,
+    close_date: null,
+    days_to_close: null,
+    est_value: null,
+    incumbent: null,
+    fit_score: scored ? 61 : null,
+  };
+  OPPORTUNITIES.push(summary);
+
+  return delay(summary, 1200); // "parsing the PDF"
+}

@@ -10,6 +10,7 @@
 import Link from "next/link";
 import type { OpportunitySummary } from "@/lib/types";
 import { RECOMPETE_WINDOW } from "@/lib/types";
+import BookmarkStar from "./BookmarkStar";
 import ScoreBadge from "./ScoreBadge";
 
 function inCaptureWindow(months: number): boolean {
@@ -49,7 +50,10 @@ export default function OpportunityCard({ opp }: { opp: OpportunitySummary }) {
           <h4 className="text-[15px] font-semibold leading-snug text-[#16324f]">{opp.title}</h4>
           <div className="mt-0.5 text-xs text-[#51606f]">{agencyLine}</div>
         </div>
-        <ScoreBadge score={opp.fit_score} />
+        <div className="flex shrink-0 items-start gap-2">
+          <BookmarkStar id={opp.id} />
+          <ScoreBadge score={opp.fit_score} />
+        </div>
       </div>
 
       <p className="mt-2 text-[13px] leading-relaxed text-[#1f2933]">{opp.description}</p>

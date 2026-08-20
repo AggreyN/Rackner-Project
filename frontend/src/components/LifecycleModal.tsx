@@ -6,7 +6,7 @@
 // flow, but scoring and suggestions depend on it.
 
 import { useRef, useState } from "react";
-import { uploadLifecyclePlan } from "@/lib/api";
+import { deleteLifecyclePlan, uploadLifecyclePlan } from "@/lib/api";
 import type { LifecycleProfile } from "@/lib/types";
 
 interface Props {
@@ -30,6 +30,19 @@ export default function LifecycleModal({ lifecycle, onClose, onUpdated }: Props)
     try {
       await uploadLifecyclePlan(file);
       onUpdated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove() {
+    setError(null);
+    setBusy(true);
+    try {
+      await deleteLifecyclePlan();
+      onUpdated(); // lists go neutral — no scores until a new plan lands
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -78,6 +91,17 @@ export default function LifecycleModal({ lifecycle, onClose, onUpdated }: Props)
           >
             Close
           </button>
+          {lifecycle && (
+            <button
+              onClick={handleRemove}
+              disabled={busy}
+              data-testid="remove-plan"
+              title="Search and suggestions go neutral (unscored) until a new plan is uploaded"
+              className="border border-[#d7dee6] px-3 py-2 text-sm text-[#a3231f] hover:bg-[#f9e8e7] disabled:opacity-60"
+            >
+              Remove plan
+            </button>
+          )}
           <button
             onClick={() => inputRef.current?.click()}
             disabled={busy}

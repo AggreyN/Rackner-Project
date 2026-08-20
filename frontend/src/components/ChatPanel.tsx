@@ -3,64 +3,53 @@
 // Per-opportunity AI assistant. Answers come from the gov-safe LLM with
 // citations back to the source document — clicking a citation jumps the
 // source pane, same grounding rule as everywhere else.
+//
+// Controlled: conversation state lives in useChat() on the page, so the
+// inline panel and the floating Anvil window share one transcript.
 
 import { useState } from "react";
-import { askChat } from "@/lib/api";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatState } from "@/hooks/useChat";
 import type { CiteTarget } from "./ObligationsPanel";
 
 export default function ChatPanel({
-  opportunityId,
+  chat,
   onCite,
+  frameless = false,
+  autoFocus = false,
 }: {
-  opportunityId: string;
+  chat: ChatState;
   onCite: (target: CiteTarget) => void;
+  /** Floating-window mode: no card border, fills its container. */
+  frameless?: boolean;
+  autoFocus?: boolean;
 }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const { messages, busy, send } = chat;
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
 
-  async function send(e?: React.FormEvent) {
+  async function submit(e?: React.FormEvent) {
     e?.preventDefault();
-    const question = input.trim();
-    if (!question || busy) return;
+    const q = input.trim();
+    if (!q || busy) return;
     setInput("");
-    // Snapshot the transcript BEFORE appending this question — these are the
-    // prior turns the backend uses to resolve follow-ups.
-    const history = messages;
-    setMessages((m) => [...m, { role: "user", text: question }]);
-    setBusy(true);
-    try {
-      const res = await askChat(opportunityId, question, history);
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          // Belt-and-suspenders: the backend never sends blank answers anymore,
-          // but a blank bubble must be impossible at this layer too.
-          text: res.answer?.trim()
-            ? res.answer
-            : "Anvil had trouble with that one — try asking again.",
-          citations: res.citations,
-        },
-      ]);
-    } catch {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", text: "Couldn't reach Anvil — try again." },
-      ]);
-    } finally {
-      setBusy(false);
-    }
+    await send(q);
   }
 
   return (
-    <div className="border border-[#d7dee6] bg-white p-4 sm:p-5" data-testid="chat-panel">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-[#51606f]">
-        Anvil AI — Ask about this opportunity
-      </h3>
+    <div
+      className={
+        frameless
+          ? "flex h-full min-h-0 flex-col p-3"
+          : "border border-[#d7dee6] bg-white p-4 sm:p-5"
+      }
+      data-testid="chat-panel"
+    >
+      {!frameless && (
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-[#51606f]">
+          Anvil AI — Ask about this opportunity
+        </h3>
+      )}
 
-      <div className="space-y-2">
+      <div className={"space-y-2 " + (frameless ? "min-h-0 flex-1 overflow-y-auto" : "")}>
         {messages.length === 0 && (
           <p className="text-xs text-[#51606f]">
             Try: “What would disqualify us from bidding?” or “When is it due?”
@@ -114,10 +103,11 @@ export default function ChatPanel({
         {busy && <p className="text-xs text-[#51606f]">Anvil is reading the document…</p>}
       </div>
 
-      <form onSubmit={send} className="mt-3 flex gap-2">
+      <form onSubmit={submit} className="mt-3 flex gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          autoFocus={autoFocus}
           placeholder="Ask Anvil Anything about this contract…"
           className="w-full flex-1 rounded-md border border-[#d7dee6] px-3 py-2 text-sm focus:border-[#16324f] focus:outline-none"
         />

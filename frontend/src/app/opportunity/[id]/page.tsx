@@ -14,6 +14,10 @@ import SourcePane from "@/components/SourcePane";
 import SpendPanel from "@/components/SpendPanel";
 import ContactPanel from "@/components/ContactPanel";
 import ChatPanel from "@/components/ChatPanel";
+import FloatingWindow from "@/components/FloatingWindow";
+import BookmarkStar from "@/components/BookmarkStar";
+import SavedDrawer from "@/components/SavedDrawer";
+import { useChat } from "@/hooks/useChat";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import {
   getAnalysis,
@@ -48,6 +52,11 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
   const [cite, setCite] = useState<CiteTarget | null>(null);
   const [collapsed, setCollapsed] = useState(false); // desktop right pane
   const [mobilePane, setMobilePane] = useState<"analysis" | "source">("analysis");
+
+  // ONE conversation, two surfaces: the inline panel at the bottom of the
+  // analysis column and the floating Anvil window opened from the launcher.
+  const chat = useChat(id);
+  const [chatOpen, setChatOpen] = useState(false);
 
   // A cached analysis lands in a couple of seconds. Past that, this is a
   // first-time generation (the backend is reading the whole package, up to
@@ -144,9 +153,12 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
             </p>
           )}
 
-          <h1 className="text-lg font-semibold leading-snug text-[#16324f]">
-            {opp?.title ?? "Loading opportunity…"}
-          </h1>
+          <div className="flex items-start gap-2.5">
+            <h1 className="min-w-0 flex-1 text-lg font-semibold leading-snug text-[#16324f]">
+              {opp?.title ?? "Loading opportunity…"}
+            </h1>
+            <BookmarkStar id={id} size="md" />
+          </div>
           <p className="mb-4 mt-0.5 text-xs text-[#51606f]">{subLine}</p>
 
           <div className="space-y-4">
@@ -210,7 +222,7 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
 
             {spend && <SpendPanel spend={spend} />}
             {contact && <ContactPanel contact={contact} />}
-            <ChatPanel opportunityId={id} onCite={handleCite} />
+            <ChatPanel chat={chat} onCite={handleCite} />
           </div>
         </div>
 
@@ -231,6 +243,37 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
           />
         </div>
       </div>
+
+      {/* Anvil launcher — bottom-left, always reachable without scrolling
+          past the obligations. Hidden while the window is open. */}
+      {!chatOpen && (
+        <button
+          onClick={() => setChatOpen(true)}
+          data-testid="anvil-launcher"
+          aria-label="Open Anvil AI chat"
+          className="fixed bottom-5 left-5 z-30 flex h-13 items-center gap-2 rounded-full bg-[#16324f] px-4 py-3 text-sm font-semibold text-white shadow-[0_6px_18px_rgba(22,50,79,.35)] hover:bg-[#0f2438]"
+        >
+          <span className="text-lg leading-none">💬</span>
+          <span className="hidden sm:inline">Ask Anvil</span>
+        </button>
+      )}
+
+      {chatOpen && (
+        <FloatingWindow title="Anvil AI" onClose={() => setChatOpen(false)}>
+          <ChatPanel
+            chat={chat}
+            frameless
+            autoFocus
+            onCite={(t) => {
+              // Citations from the floating window drive the same source-pane
+              // highlight; keep the window open so the user can keep asking.
+              handleCite(t);
+            }}
+          />
+        </FloatingWindow>
+      )}
+
+      <SavedDrawer />
     </main>
   );
 }
