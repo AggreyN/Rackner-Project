@@ -344,7 +344,11 @@ def load_text(data: bytes, filename: str = "") -> str:
     return canonicalize(data.decode("utf-8", errors="replace"))
 
 
-def build_source_document(opportunity, attachments: list[bytes] | None = None) -> dict:
+def build_source_document(
+    opportunity,
+    attachments: list[bytes] | None = None,
+    attachment_texts: list[str] | None = None,
+) -> dict:
     """Assemble the SourceDocument payload for one opportunity.
 
     `opportunity` may be an ORM row or a dict. Attachment bytes, when supplied,
@@ -365,6 +369,11 @@ def build_source_document(opportunity, attachments: list[bytes] | None = None) -
     # needs the same canonicalization the attachments already got.
     description = canonicalize(description)
     parts = [description] if description.strip() else []
+    # Pre-extracted texts (the caller parsed once to measure growth) are used
+    # as-is; raw blobs are parsed here.
+    for text in attachment_texts or []:
+        if text.strip():
+            parts.append(text)
     for blob in attachments or []:
         # A corrupt download (PDF magic, garbage body) must degrade to a
         # skipped attachment — never a 500 on every document view.

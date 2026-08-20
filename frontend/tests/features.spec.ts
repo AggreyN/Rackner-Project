@@ -210,8 +210,11 @@ test("removing the lifecycle plan makes search and suggestions unscored", async 
     page.getByTestId("opportunity-card").filter({ hasText: "Managed Cybersecurity" })
   ).toContainText("82");
 
-  // Remove the plan.
+  // Remove the plan. Removal is destructive (analyses reset), so it asks
+  // first — Playwright dismisses dialogs by default, which would silently
+  // no-op the whole test.
   await page.getByRole("button", { name: /Lifecycle plan on file/ }).click();
+  page.once("dialog", (d) => d.accept());
   await page.getByTestId("remove-plan").click();
   await expect(page.getByRole("button", { name: "Add lifecycle plan" })).toBeVisible();
 

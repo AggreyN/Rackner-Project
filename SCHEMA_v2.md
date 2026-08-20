@@ -25,6 +25,7 @@ pre-formatted display string (see note below).
 | `email` | string | |
 | `org` | string | e.g. `"rackner.com"` — derived from the email domain |
 | `initials` | string | for the avatar chip |
+| `username` | string \| null | display name ("Welcome, {username}") — mirrors Cognito's `name` attribute; null falls back to the email local-part |
 
 ### LifecycleProfile
 Parsed from the user's uploaded Opportunity Lifecycle plan. Powers compatibility
@@ -72,7 +73,8 @@ solicited yet. That is the capture window.
 | `days_to_close` | number \| null | server-computed |
 | `est_value` | string \| null | **display string**, e.g. `"$8–12M / 5yr"` |
 | `incumbent` | string \| null | |
-| `fit_score` | number \| null | 0–100 vs. the lifecycle plan; null with no plan on file |
+| `fit_score` | number \| null | 0–100 vs. the lifecycle plan; null with no plan on file (unless a full analysis exists — the researched score is always shown) |
+| `fit_source` | `"estimate"` \| `"analysis"` \| null | `"analysis"` = the user's cached full analysis (card and analysis screen agree); `"estimate"` = metadata-only pre-screen (AI-batched or heuristic). UI renders estimates as approximate. |
 | `expiry_date` | string \| null | `expiring_award` only — current award PoP end |
 | `months_to_expiry` | number \| null | `expiring_award` only — server-computed |
 | `current_award_value` | number \| null | `expiring_award` only — total obligated |
@@ -248,6 +250,7 @@ Unverified quotes still jump to the section but highlight nothing.
 | POST | `/auth/login` | `{access_token}` — exact key |
 | GET | `/profile` | Profile |
 | POST | `/profile/lifecycle` | LifecycleProfile — **multipart** file upload |
+| DELETE | `/profile/lifecycle` | 204 — removes the plan, its S3 object, and everything scored against it (estimates + analyses). 404 with no plan on file. UI does not call it yet. |
 | GET | `/opportunities/search?q=&kinds=&expiring_from=&expiring_to=` | OpportunitySummary[] |
 | GET | `/opportunities/suggested?kinds=&expiring_from=&expiring_to=` | OpportunitySummary[] |
 | GET | `/opportunities/{id}` | OpportunitySummary |

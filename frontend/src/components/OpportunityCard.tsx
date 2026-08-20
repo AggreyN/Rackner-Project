@@ -52,7 +52,7 @@ export default function OpportunityCard({ opp }: { opp: OpportunitySummary }) {
         </div>
         <div className="flex shrink-0 items-start gap-2">
           <BookmarkStar id={opp.id} />
-          <ScoreBadge score={opp.fit_score} />
+          <ScoreBadge score={opp.fit_score} source={opp.fit_source} />
         </div>
       </div>
 
@@ -70,9 +70,11 @@ export default function OpportunityCard({ opp }: { opp: OpportunitySummary }) {
           opp.days_to_close !== null && (
             <span>
               ⏱{" "}
-              {opp.kind === "baa"
-                ? `AOI in ${opp.days_to_close} days`
-                : `Closes in ${opp.days_to_close} days`}
+              {opp.days_to_close < 0
+                ? "Closed"
+                : opp.kind === "baa"
+                  ? `AOI in ${opp.days_to_close} days`
+                  : `Closes in ${opp.days_to_close} days`}
             </span>
           )
         )}

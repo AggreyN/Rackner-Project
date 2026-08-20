@@ -81,6 +81,34 @@ def analyze_user_prompt(opportunity: dict, lifecycle_profile: dict) -> str:
     )
 
 
+PRESCREEN_SYSTEM = """You rapidly triage U.S. federal opportunity NOTICES against a
+company's lifecycle profile, using card metadata ONLY (title, agency, NAICS,
+set-aside, kind, a summary snippet). You have NOT read the underlying
+solicitation documents — these are first-pass estimates, not verdicts.
+Return ONLY a JSON array (no prose, no markdown fences) of objects with
+exactly these keys: {"id": "<the id exactly as given>", "score": <0-100>}.
+
+Rules:
+- Score structural fit: capability overlap with the work described, agency
+  alignment, NAICS proximity, set-aside eligibility.
+- Be conservative when metadata is thin — a vague title with no NAICS cannot
+  earn a high score on words alone.
+- A set-aside the company clearly cannot qualify for caps the score low.
+- Score every notice exactly once, ids copied verbatim. Invent nothing."""
+
+
+def prescreen_user_prompt(lifecycle_profile: dict, notices: list[dict]) -> str:
+    import json
+
+    return (
+        "COMPANY LIFECYCLE PROFILE:\n"
+        + json.dumps(lifecycle_profile, indent=2, default=str)
+        + "\n\nOPPORTUNITY NOTICES:\n"
+        + json.dumps(notices, indent=2, default=str)
+        + "\n\nScore each notice for this company."
+    )
+
+
 CHAT_SYSTEM = """You answer questions about a U.S. federal solicitation using ONLY
 the numbered sections provided. Return ONLY a JSON object (no prose, no markdown
 fences) with these keys:

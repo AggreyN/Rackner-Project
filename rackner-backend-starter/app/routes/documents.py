@@ -30,6 +30,14 @@ from app.services import attachments, ingest
 
 router = APIRouter(tags=["document"])
 
+# Single-flight per opportunity: concurrent first-builds each downloaded every
+# attachment (N x SAM quota for the same files — audit 2026-08-19). The loser
+# serves whatever exists rather than blocking a request thread for minutes.
+import threading as _threading
+
+_builds_inflight: set[str] = set()
+_builds_lock = _threading.Lock()
+
 
 def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
     """Return the stored SourceDocument for this opportunity, building it once.
@@ -73,15 +81,43 @@ def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
         if not needs_description and not wants_more:
             return doc  # the common case: zero fetching, zero SAM calls
 
-    blobs, exhausted = attachments.fetch_all(links)
+    with _builds_lock:
+        if opp.id in _builds_inflight:
+            # Another request is mid-build (downloads can take a while). Serve
+            # the current state; the winner's build lands shortly.
+            if doc is not None:
+                return doc
+            blobs, exhausted = [], False  # placeholder empty build, retried later
+        else:
+            _builds_inflight.add(opp.id)
+            blobs = None  # sentinel: we own the build
+    if blobs is None:
+        try:
+            blobs, exhausted = attachments.fetch_all(links)
+        finally:
+            with _builds_lock:
+                _builds_inflight.discard(opp.id)
     # exhausted: every link resolved (fetched, or dead in a way retrying won't
     # fix) — record them all so no future read re-attempts them. A quota-stop
     # accounts only the successes, leaving the rest for a fresh-quota day.
     accounted = len(links) if exhausted else len(blobs)
 
+    # Parse once, here: "grew" must mean MORE GROUNDING TEXT, not more bytes.
+    # Comparing blob counts let a text-less attachment trigger a rebuild with
+    # byte-identical sections that deleted every user's analyses for nothing
+    # (audit 2026-08-19).
+    attachment_texts: list[str] = []
+    for blob in blobs:
+        try:
+            text = ingest.load_text(blob)
+        except Exception:
+            text = ""
+        if text.strip():
+            attachment_texts.append(text)
+
     if doc is not None:
         needs_description = bool(description) and not doc.has_description
-        grew = len(blobs) > (doc.attachments_ingested or 0)
+        grew = len(attachment_texts) > (doc.attachments_ingested or 0)
         if doc.sections and not grew and not needs_description:
             # Nothing new to build — but remember what got resolved, so dead
             # links stop being retried on every read.
@@ -106,7 +142,7 @@ def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
         db.delete(doc)
         db.flush()
 
-    payload = ingest.build_source_document(opp, attachments=blobs)
+    payload = ingest.build_source_document(opp, attachment_texts=attachment_texts)
     # The INSERT executes at flush, not commit — the unique-index violation
     # from a concurrent builder raises there, so the whole insert lives
     # inside the try.
@@ -114,7 +150,7 @@ def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
         doc = SourceDocumentModel(
             opportunity_id=opp.id,
             label=payload["label"],
-            attachments_ingested=len(blobs),
+            attachments_ingested=len(attachment_texts),
             attachments_accounted=accounted,
             has_description=bool(description),
         )

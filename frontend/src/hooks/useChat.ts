@@ -24,7 +24,9 @@ export function useChat(opportunityId: string): ChatState {
       if (!q || busy) return;
       // Snapshot the transcript BEFORE appending this question — these are
       // the prior turns the backend uses to resolve follow-ups.
-      const history = messages;
+      // Synthetic error bubbles are UI chrome, not conversation — sending
+      // them as assistant turns taught the model to apologize for outages.
+      const history = messages.filter((m) => !m.error);
       setMessages((m) => [...m, { role: "user", text: q }]);
       setBusy(true);
       try {
@@ -44,7 +46,7 @@ export function useChat(opportunityId: string): ChatState {
       } catch {
         setMessages((m) => [
           ...m,
-          { role: "assistant", text: "Couldn't reach Anvil — try again." },
+          { role: "assistant", text: "Couldn't reach Anvil — try again.", error: true },
         ]);
       } finally {
         setBusy(false);

@@ -45,7 +45,7 @@ services:
         condition: service_healthy
     # Migrate, then serve. Running alembic here (not in the Dockerfile) means
     # the schema converges every boot, including after a fresh volume.
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # migrations + serve come from the image ENTRYPOINT (entrypoint.sh)
 
 volumes:
   pgdata:

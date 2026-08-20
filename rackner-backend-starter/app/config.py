@@ -31,7 +31,7 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_MINUTES = int(os.getenv("JWT_EXPIRY_MINUTES", "720"))  # 12h, short-lived
 
 # --- Amazon Cognito (only used when AUTH_MODE=cognito) ---
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-2")
 COGNITO_USER_POOL_ID = get_secret("COGNITO_USER_POOL_ID", "")
 COGNITO_APP_CLIENT_ID = get_secret("COGNITO_APP_CLIENT_ID", "")  # JWT audience
 
@@ -78,6 +78,19 @@ CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "8192"))
 # to hundreds of KB — slow, costly, and truncation-prone. Over this budget,
 # the most question-relevant sections are kept (logged, never silent).
 CHAT_MAX_SECTION_CHARS = int(os.getenv("CHAT_MAX_SECTION_CHARS", "120000"))
+
+# AI pre-screen (card fit estimates). MAX_ROWS bounds one batched call so the
+# response can't truncate and search latency stays bounded (~20s worst case on
+# the fail-fast client); rows past the cap fall back to the heuristic.
+# MIN_ROWS keeps single-row pages (detail views) off the model entirely — a
+# per-click model call would be superseded by the analysis pre-warm anyway.
+FIT_PRESCREEN_MAX_ROWS = int(os.getenv("FIT_PRESCREEN_MAX_ROWS", "60"))
+FIT_PRESCREEN_MIN_ROWS = int(os.getenv("FIT_PRESCREEN_MIN_ROWS", "2"))
+
+# A search repeated within this window serves cached rows and spends ZERO SAM
+# quota (the freshness ledger, models.SearchFetch). New notices post daily, so
+# half a day balances freshness against a 10-call/day key. 0 disables caching.
+SAM_SEARCH_TTL_HOURS = float(os.getenv("SAM_SEARCH_TTL_HOURS", "12"))
 
 # Bedrock extraction runs one model call PER SECTION. A 638-page document
 # sections into ~550 — one stray click must not buy 550 model calls. Sections

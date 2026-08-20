@@ -20,6 +20,24 @@ export default function LifecycleModal({ lifecycle, onClose, onUpdated }: Props)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  async function handleDelete() {
+    // Destructive: the plan AND everything scored against it (estimates,
+    // analyses) go — same semantics as replacing it. Ask first.
+    if (!window.confirm("Remove the lifecycle plan? Fit scores and analyses will reset.")) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteLifecyclePlan();
+      onUpdated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleFile(file: File) {
     if (file.type !== "application/pdf") {
       setError("Upload the lifecycle plan as a PDF.");
@@ -30,19 +48,6 @@ export default function LifecycleModal({ lifecycle, onClose, onUpdated }: Props)
     try {
       await uploadLifecyclePlan(file);
       onUpdated();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRemove() {
-    setError(null);
-    setBusy(true);
-    try {
-      await deleteLifecyclePlan();
-      onUpdated(); // lists go neutral — no scores until a new plan lands
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -91,17 +96,6 @@ export default function LifecycleModal({ lifecycle, onClose, onUpdated }: Props)
           >
             Close
           </button>
-          {lifecycle && (
-            <button
-              onClick={handleRemove}
-              disabled={busy}
-              data-testid="remove-plan"
-              title="Search and suggestions go neutral (unscored) until a new plan is uploaded"
-              className="border border-[#d7dee6] px-3 py-2 text-sm text-[#a3231f] hover:bg-[#f9e8e7] disabled:opacity-60"
-            >
-              Remove plan
-            </button>
-          )}
           <button
             onClick={() => inputRef.current?.click()}
             disabled={busy}
@@ -109,6 +103,17 @@ export default function LifecycleModal({ lifecycle, onClose, onUpdated }: Props)
           >
             {busy ? "Parsing plan…" : lifecycle ? "Replace plan (PDF)" : "Upload plan (PDF)"}
           </button>
+          {lifecycle && (
+            <button
+              onClick={() => void handleDelete()}
+              disabled={busy}
+              data-testid="remove-plan"
+              title="Search and suggestions go neutral (unscored) until a new plan is uploaded"
+              className="border border-[#e4c7c6] px-4 py-2 text-sm font-medium text-[#a3231f] hover:bg-[#fbf1f1] disabled:opacity-60"
+            >
+              Remove plan
+            </button>
+          )}
           <input
             ref={inputRef}
             type="file"

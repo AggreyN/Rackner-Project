@@ -34,6 +34,9 @@ class User(BaseModel):
     email: str
     org: str = ""
     initials: str = ""
+    # Display name for "Welcome, {username}". Mirrors Cognito's `name`
+    # attribute; null falls back to the email local-part in the UI.
+    username: Optional[str] = None
 
 
 class LifecycleProfile(BaseModel):
@@ -72,6 +75,11 @@ class OpportunitySummary(BaseModel):
     est_value: Optional[str] = None  # display string, e.g. "$8–12M / 5yr"
     incumbent: Optional[str] = None
     fit_score: Optional[float] = None  # 0–100; null with no lifecycle plan on file
+    # Where fit_score came from: "analysis" = the user's cached full analysis
+    # (the researched number — card and analysis screen agree); "estimate" =
+    # a pre-screen from card metadata only (AI-batched or heuristic). The UI
+    # renders estimates as approximate ("~72 est."), never as verdicts.
+    fit_source: Optional[Literal["estimate", "analysis"]] = None
     # expiring_award only; null on live solicitations.
     expiry_date: Optional[str] = None
     months_to_expiry: Optional[int] = None

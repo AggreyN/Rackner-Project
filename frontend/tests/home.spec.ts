@@ -49,4 +49,44 @@ test.describe("home", () => {
     await expect(card).toContainText("$8–12M / 5yr");
     await expect(card).toContainText("Incumbent: SmallCyber LLC");
   });
+  test("back from an opportunity returns to the search results, not a reset home", async ({
+    page,
+  }) => {
+    // The YouTube model: home -> results (a URL) -> detail -> Back -> results.
+    await page.getByPlaceholder(/Search by keyword/).fill("devsecops");
+    await page.getByRole("button", { name: "Search" }).click();
+    await expect(page.getByTestId("results")).toHaveAttribute("data-busy", "false");
+    await expect(page).toHaveURL(/\?q=devsecops/);
+
+    await page.getByTestId("opportunity-card").first().click();
+    await expect(page).toHaveURL(/\/opportunity\//);
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\?q=devsecops/);
+    await expect(page.getByTestId("results")).toHaveAttribute("data-busy", "false");
+    await expect(page.getByTestId("opportunity-card")).toContainText(
+      "Cloud Migration & DevSecOps Engineering"
+    );
+    await expect(page.getByPlaceholder(/Search by keyword/)).toHaveValue("devsecops");
+  });
+
+  test("a search URL is shareable — direct load renders the results", async ({ page }) => {
+    await page.goto("/?q=devsecops");
+    await expect(page.getByTestId("results")).toHaveAttribute("data-busy", "false");
+    await expect(page.getByTestId("opportunity-card")).toContainText(
+      "Cloud Migration & DevSecOps Engineering"
+    );
+  });
+
+  test("top bar greets the user by name", async ({ page }) => {
+    await expect(page.getByTestId("welcome")).toHaveText("Welcome, Remy");
+  });
+
+  test("the lifecycle plan can be removed, with confirmation", async ({ page }) => {
+    await page.getByRole("button", { name: "✓ Lifecycle plan on file" }).click();
+    page.on("dialog", (d) => d.accept());
+    await page.getByRole("button", { name: "Remove plan" }).click();
+    // The chip flips to the add state once the plan is gone.
+    await expect(page.getByRole("button", { name: "Add lifecycle plan" })).toBeVisible();
+  });
 });

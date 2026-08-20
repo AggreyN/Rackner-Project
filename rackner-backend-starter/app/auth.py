@@ -153,6 +153,14 @@ def _upsert_cognito_user(claims: dict, db: Session) -> User:
             user.cognito_sub = sub
         db.commit()
         db.refresh(user)
+
+    # Cognito owns the display name (`name` attribute); mirror it whenever it
+    # changes so "Welcome, {username}" follows the pool without a redeploy.
+    claimed_name = (claims.get("name") or "").strip() or None
+    if claimed_name and claimed_name != user.display_name:
+        user.display_name = claimed_name
+        db.commit()
+        db.refresh(user)
     return user
 
 

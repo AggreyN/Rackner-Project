@@ -43,6 +43,11 @@ class User(Base):
     cognito_sub: Mapped[str | None] = mapped_column(String(255), unique=True)
     # Set in local demo mode only (bcrypt hash); null in Cognito mode.
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    # Display name ("Welcome, {username}"). In Cognito mode this mirrors the
+    # pool's `name` attribute (synced from ID-token claims on every request);
+    # set it with scripts/set_cognito_username.sh. Null falls back to the
+    # email local-part in the UI.
+    display_name: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
@@ -128,6 +133,55 @@ class Opportunity(Base):
     )
     source_documents: Mapped[list["SourceDocument"]] = relationship(
         back_populates="opportunity", cascade="all, delete-orphan"
+    )
+
+
+class SearchFetch(Base):
+    """Freshness ledger: when was this (query, kinds) last fetched LIVE.
+
+    Within SAM_SEARCH_TTL_HOURS the search serves cached opportunity rows and
+    spends ZERO SAM quota — repeat searches and dashboard loads are free. A
+    stale or unseen query spends exactly one live call and refreshes the
+    ledger. This is what makes a 10-call/day key livable.
+    """
+
+    __tablename__ = "search_fetches"
+    __table_args__ = (
+        Index("uq_search_fetches_query_key", "query_key", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    query_key: Mapped[str] = mapped_column(String(64))  # sha256 hex
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class FitEstimate(Base):
+    """Cached AI pre-screen score for one (user, opportunity) card.
+
+    Search pages are scored in ONE batched model call from card metadata; the
+    result is cached here so the number is STABLE across search → detail →
+    tomorrow, and repeat searches cost nothing. Invalidated when the user
+    uploads a new lifecycle plan (an estimate against an old profile is
+    meaningless). At serialization time a cached ANALYSIS score always takes
+    precedence over any estimate — once the researched number exists, the
+    card must agree with the analysis screen.
+    """
+
+    __tablename__ = "fit_estimates"
+    __table_args__ = (
+        Index("uq_fit_estimates_user_opp", "user_id", "opportunity_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    opportunity_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("opportunities.id", ondelete="CASCADE"), index=True
+    )
+    score: Mapped[float] = mapped_column(Float)  # 0–100
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
     )
 
 

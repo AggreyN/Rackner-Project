@@ -31,6 +31,9 @@ export default function ChatPanel({
     const q = input.trim();
     if (!q || busy) return;
     setInput("");
+    // The send logic (history snapshot, error-bubble filtering, blank-answer
+    // guard) moved into useChat so the inline panel and the floating window
+    // share one transcript.
     await send(q);
   }
 
@@ -74,7 +77,7 @@ export default function ChatPanel({
                   — cited to{" "}
                   {m.citations.map((c, j) => (
                     <button
-                      key={c.section}
+                      key={`${c.section}-${j}`}
                       // Verified quotes ride the same highlight path as
                       // obligations; unverified ones still jump to the
                       // section but highlight nothing (nothing is grounded).

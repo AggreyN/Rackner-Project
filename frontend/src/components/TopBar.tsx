@@ -49,7 +49,11 @@ export default function TopBar({ profile, onLifecycleUpdated }: Props) {
           >
             {hasPlan ? "✓ Lifecycle plan on file" : "Add lifecycle plan"}
           </button>
-          <span className="hidden sm:inline">{profile?.user.org ?? "rackner.com"}</span>
+          <span className="hidden sm:inline" data-testid="welcome">
+            {profile
+              ? `Welcome, ${profile.user.username ?? profile.user.email.split("@")[0]}`
+              : ""}
+          </span>
           <div className="relative">
             <button
               onClick={() => setMenuOpen(!menuOpen)}

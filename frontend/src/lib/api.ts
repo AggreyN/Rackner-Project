@@ -89,22 +89,22 @@ export async function getProfile(email: string): Promise<Profile> {
   return json(await fetch(`${BASE}/profile`, { headers: headers() }));
 }
 
+export async function deleteLifecyclePlan(): Promise<void> {
+  if (USE_MOCK) return mock.deleteLifecyclePlan();
+  const res = await fetch(`${BASE}/profile/lifecycle`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (res.status === 404) return; // already gone — same end state
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+}
+
 export async function uploadLifecyclePlan(file: File): Promise<LifecycleProfile> {
   if (USE_MOCK) return mock.uploadLifecyclePlan(file);
   const form = new FormData();
   form.append("file", file);
   return json(
     await fetch(`${BASE}/profile/lifecycle`, { method: "POST", headers: headers(), body: form })
-  );
-}
-
-/** Removing the plan puts every list into neutral mode — no fit scores,
- *  because there is nothing to score against.
- *  Expected backend route: DELETE /profile/lifecycle → 204. */
-export async function deleteLifecyclePlan(): Promise<void> {
-  if (USE_MOCK) return mock.deleteLifecycle();
-  await json(
-    await fetch(`${BASE}/profile/lifecycle`, { method: "DELETE", headers: headers() })
   );
 }
 
@@ -185,7 +185,12 @@ export async function getAnalysis(id: string): Promise<Analysis> {
   for (;;) {
     const res = await fetch(url, { headers: headers() });
     const generating = res.status === 503 || res.status === 504;
-    if (!generating || Date.now() >= deadline) return json(res);
+    if (Date.now() >= deadline && generating) {
+      throw new Error(
+        "This analysis is taking longer than usual — it keeps generating in the background; reopen the page in a minute."
+      );
+    }
+    if (!generating) return json(res);
     const retryAfter = Number(res.headers.get("retry-after")) || 15;
     await new Promise((r) => setTimeout(r, retryAfter * 1000));
   }

@@ -52,6 +52,14 @@ os.environ["AUTH_MODE"] = "local"
 # offline suite — the live path has its own opt-in file (test_textract_live).
 os.environ["OCR_MODE"] = "off"
 os.environ["STORAGE_BACKEND"] = "local"
+# Never let a dev .env leak REAL keys, prod secrets, or tuned knobs into the
+# offline suite (audit 2026-08-19): a placeholder SAM key (stubs override it),
+# dev secrets mode, a nonexistent config secret, and default cache knobs.
+os.environ["APP_ENV"] = "dev"
+os.environ["SAM_GOV_API_KEY"] = "test-not-a-real-key"
+os.environ["CONFIG_SECRET_NAME"] = "test-nonexistent-secret"
+os.environ["SAM_SEARCH_TTL_HOURS"] = "12"
+os.environ["LLM_EXTRACT_CONCURRENCY"] = "8"
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 os.environ.setdefault("JWT_SECRET", "test-only-secret-not-a-real-key")
 
@@ -111,6 +119,31 @@ def _migrated(database_url):
     yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _no_live_gov_calls(_migrated):
+    """The offline suite must never touch live government APIs (audit
+    2026-08-19: search-path tests without explicit stubs were making real
+    USAspending POSTs — 7 tests, 42 network attempts). Tests that need
+    specific behavior monkeypatch over these; the opt-in live suites
+    (RUN_GOV_TESTS=1) get the real functions."""
+    if os.getenv("RUN_GOV_TESTS") == "1":
+        yield
+        return
+    from unittest.mock import patch
+
+    from app.services import usaspending
+
+    real_spend = usaspending.spend_summary
+    with patch.object(usaspending, "expiring_awards", lambda **kw: []), patch.object(
+        usaspending,
+        "spend_summary",
+        lambda opportunity_id, recipient=None, **kw: real_spend(
+            opportunity_id=opportunity_id, recipient=None
+        ),
+    ):
+        yield
+
+
 @pytest.fixture(scope="session")
 def client(_migrated):
     from fastapi.testclient import TestClient
@@ -119,6 +152,24 @@ def client(_migrated):
 
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _clean_search_ledger(_migrated):
+    """The freshness ledger is cross-request state by design — but across
+    TESTS it makes one test's live fetch silently cache-serve the next
+    test's stubbed route. Each test starts with an empty ledger; stamping
+    within a test still works."""
+    from app.database import SessionLocal
+    from app.models import SearchFetch
+
+    db = SessionLocal()
+    try:
+        db.query(SearchFetch).delete()
+        db.commit()
+    finally:
+        db.close()
+    yield
 
 
 @pytest.fixture(scope="session")
