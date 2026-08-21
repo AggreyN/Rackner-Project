@@ -64,8 +64,21 @@ async function json<T>(res: Response, opts: { authRedirect?: boolean } = {}): Pr
     // The redirect is async — still throw so in-flight callers stop cleanly.
     throw new Error("Session expired — sign in again.");
   }
-  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(await errorMessage(res));
   return res.json() as Promise<T>;
+}
+
+/** FastAPI errors arrive as {"detail": "..."} — surface the sentence, not the
+ *  raw JSON body (error banners were showing `503: {"detail":"The database…`). */
+async function errorMessage(res: Response): Promise<string> {
+  const body = await res.text();
+  try {
+    const detail = JSON.parse(body)?.detail;
+    if (typeof detail === "string" && detail) return detail;
+  } catch {
+    // not JSON — fall through to the raw body
+  }
+  return `${res.status}: ${body}`;
 }
 
 // ---------- auth ----------
@@ -184,11 +197,16 @@ export async function getAnalysis(id: string): Promise<Analysis> {
   const deadline = Date.now() + 5 * 60 * 1000;
   for (;;) {
     const res = await fetch(url, { headers: headers() });
-    // Generation 503s carry Retry-After; outage 503s (database unreachable,
-    // schema not ready) do NOT — those must surface as errors, not spin the
-    // skeleton forever (audit-2 finding). LB 504s mean generation overran.
-    const generating =
-      (res.status === 503 && res.headers.has("retry-after")) || res.status === 504;
+    // Outage 503s (database unreachable, migrations not run) must surface as
+    // errors, not spin the skeleton forever; any other 503 on this route means
+    // "generating, come back". Discriminate on the backend's NAMED detail
+    // strings — the Retry-After header is not readable cross-origin unless the
+    // backend exposes it, so it can only refine the delay, never the decision.
+    let generating = res.status === 504; // LB gave up; the server keeps working
+    if (res.status === 503) {
+      const body = await res.clone().text();
+      generating = !/database is unreachable|schema is not ready|migrations/i.test(body);
+    }
     if (Date.now() >= deadline && generating) {
       throw new Error(
         "This analysis is taking longer than usual — it keeps generating in the background; reopen the page in a minute."

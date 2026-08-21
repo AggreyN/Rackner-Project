@@ -48,6 +48,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Retry-After is not CORS-safelisted; without this the browser frontend
+    # cannot read the generation-503 poll hint (it sees every 503 headerless).
+    expose_headers=["Retry-After"],
 )
 # Outermost: every request gets an id + one JSON access line (CloudWatch-ready).
 app.add_middleware(AccessLogMiddleware)
