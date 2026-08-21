@@ -176,6 +176,14 @@ the enum, `verdict` is prose for humans.
 | `opportunity_id` | string | |
 | `label` | string | e.g. `"Source solicitation · HC1084-26-R-0042"` |
 | `sections` | SourceSection[] | |
+| `attachments_ingested` | number | attachments whose text is in `sections` |
+| `attachments_accounted` | number | links resolved: fetched, or permanently dead |
+| `attachments_expected` | number | links on the notice (capped at SAM_MAX_ATTACHMENTS) |
+
+`expected > accounted` means SAM quota stopped the fetch mid-pass — the rest
+loads on a later read, and the UI must show the document as partial.
+`accounted == expected` with `ingested < expected` means some attachments will
+never yield text (scanned image, dead link).
 
 **The grounding rule.** `SourceSection.text` is the one canonical string. The
 backend sets `obligation.verified = (verbatim_quote is an exact substring of

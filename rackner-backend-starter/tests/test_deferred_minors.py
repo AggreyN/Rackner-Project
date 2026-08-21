@@ -285,6 +285,23 @@ def _seed_backoff_opp(opp_id: str, links: list[str]) -> None:
         db.close()
 
 
+def test_document_wire_exposes_attachment_progress(client, auth_headers, monkeypatch):
+    """A quota-starved partial document must say so on the wire — the pane
+    shows 'N of M attachments loaded' instead of posing as the whole
+    contract (the "why does it only say p.1" confusion)."""
+    opp_id = "WIRE-COUNTS-1"
+    _seed_backoff_opp(opp_id, ["https://x/a", "https://x/b", "https://x/c"])
+    monkeypatch.setattr(
+        attachments, "fetch_all", lambda links: ([b"ONLY ONE FETCHED"], False)
+    )
+    r = client.get(f"/opportunities/{opp_id}/document", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["attachments_expected"] == 3
+    assert body["attachments_ingested"] == 1
+    assert body["attachments_accounted"] == 1
+
+
 def test_failed_attachment_pass_backs_off_instead_of_rebilling_every_read(
     client, auth_headers, monkeypatch
 ):

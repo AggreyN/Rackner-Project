@@ -121,7 +121,12 @@ def test_get_document(client, auth_headers, opportunity_id, solicitation):
     r = client.get(f"/opportunities/{opportunity_id}/document", headers=auth_headers)
     assert r.status_code == 200, r.text
     doc = r.json()
-    assert set(doc) == {"opportunity_id", "label", "sections"}
+    assert set(doc) == {
+        "opportunity_id", "label", "sections",
+        # Attachment-progress fields (SCHEMA_v2, 2026-08-21): partial docs
+        # must be visibly partial on the wire.
+        "attachments_ingested", "attachments_accounted", "attachments_expected",
+    }
     secs = doc["sections"]
     assert len(secs) >= 3
     assert all(set(s) == {"ref", "heading", "text", "page"} for s in secs)

@@ -137,6 +137,14 @@ class SourceDocument(BaseModel):
     opportunity_id: str
     label: str = ""
     sections: list[SourceSection] = Field(default_factory=list)
+    # Attachment bookkeeping, surfaced so a quota-starved partial document is
+    # visibly partial instead of silently posing as the whole contract:
+    # ingested = attachments whose text is IN sections; accounted = links
+    # resolved (fetched or permanently dead); expected = links on the notice
+    # (capped). expected > accounted means more text arrives when quota allows.
+    attachments_ingested: int = 0
+    attachments_accounted: int = 0
+    attachments_expected: int = 0
 
 
 # --- spend -------------------------------------------------------------------

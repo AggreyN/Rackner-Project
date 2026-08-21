@@ -220,7 +220,7 @@ def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
     return doc
 
 
-def to_schema(doc: SourceDocumentModel) -> SourceDocument:
+def to_schema(doc: SourceDocumentModel, opp: Opportunity) -> SourceDocument:
     return SourceDocument(
         opportunity_id=doc.opportunity_id,
         label=doc.label or "",
@@ -228,6 +228,11 @@ def to_schema(doc: SourceDocumentModel) -> SourceDocument:
             SourceSection(ref=s.ref, heading=s.heading, text=s.text, page=s.page)
             for s in doc.sections
         ],
+        attachments_ingested=doc.attachments_ingested or 0,
+        attachments_accounted=doc.attachments_accounted or 0,
+        attachments_expected=min(
+            len(opp.resource_links or []), config.SAM_MAX_ATTACHMENTS
+        ),
     )
 
 
@@ -241,4 +246,4 @@ def get_document(
     if opp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown opportunity.")
     ensure_visible(opp, user)
-    return to_schema(get_or_build_document(db, opp))
+    return to_schema(get_or_build_document(db, opp), opp)

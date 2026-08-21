@@ -52,6 +52,17 @@ export default function SourcePane({ doc, unavailable, cite, collapsed, onToggle
   const totalChars = sections.reduce((n, s) => n + s.text.length, 0);
   const isLarge = sections.length > LARGE_DOC_SECTIONS || totalChars > LARGE_DOC_CHARS;
 
+  // Attachment transparency: a quota-starved document must SAY it is partial.
+  // pending = links not yet resolved (they load on a later visit once SAM.gov
+  // quota allows); unreadable = resolved links that yielded no text (scanned
+  // images, dead files) — those will never add sections.
+  const expected = doc?.attachments_expected ?? 0;
+  const accounted = doc?.attachments_accounted ?? 0;
+  const ingested = doc?.attachments_ingested ?? 0;
+  const pendingAttachments = Math.max(0, expected - accounted);
+  const unreadableAttachments =
+    pendingAttachments === 0 ? Math.max(0, expected - ingested) : 0;
+
   // Which sections are open (large docs only) and which long bodies are
   // showing their full text.
   const [openRefs, setOpenRefs] = useState<Set<string>>(new Set());
@@ -157,6 +168,28 @@ export default function SourcePane({ doc, unavailable, cite, collapsed, onToggle
           <p className="text-[#51606f]">Loading the source document…</p>
         ) : (
           <>
+            {pendingAttachments > 0 && (
+              <div
+                data-testid="attachments-pending"
+                className="mb-4 rounded-md border border-[#e6dcbd] bg-[#fdf9ee] px-3.5 py-2.5 text-xs leading-relaxed text-[#6b5a1c]"
+              >
+                <span className="font-semibold">
+                  {ingested} of {expected} contract attachments loaded.
+                </span>{" "}
+                SAM.gov&apos;s daily API quota stopped the rest — they load automatically on a
+                later visit. Citations and page numbers cover only what&apos;s shown here.
+              </div>
+            )}
+            {unreadableAttachments > 0 && (
+              <div
+                data-testid="attachments-unreadable"
+                className="mb-4 rounded-md border border-[#d7dee6] bg-[#f5f7f9] px-3.5 py-2.5 text-xs leading-relaxed text-[#51606f]"
+              >
+                {unreadableAttachments} of {expected} attachment
+                {expected === 1 ? "" : "s"} on this notice had no readable text (scanned image
+                or dead link) and cannot be shown or cited.
+              </div>
+            )}
             {isLarge && (
               <nav
                 data-testid="source-toc"

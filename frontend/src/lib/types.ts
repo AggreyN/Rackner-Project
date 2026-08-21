@@ -185,6 +185,13 @@ export interface SourceDocument {
   opportunity_id: string;
   label: string; // e.g. "Source solicitation · HC1084-26-R-0042"
   sections: SourceSection[];
+  // Attachment bookkeeping (optional — mock docs omit them). ingested =
+  // attachments whose text is in sections; accounted = links resolved
+  // (fetched or permanently dead); expected = links on the notice. When
+  // expected > accounted, the rest loads once SAM.gov quota allows.
+  attachments_ingested?: number;
+  attachments_accounted?: number;
+  attachments_expected?: number;
 }
 
 // ---------- spend history (USAspending.gov) ----------
