@@ -12,6 +12,8 @@ rule 8 is where this week's bugs will be: an upstream outage must produce a
 
 from __future__ import annotations
 
+import datetime
+
 import pytest
 
 from app.services import samgov, usaspending
@@ -27,7 +29,9 @@ SAM_SUMMARY = {
     "set_aside": "HUBZone",
     "kind": "solicitation",
     "description": "The Contractor shall provide continuous monitoring.",
-    "close_date": "2026-12-31",
+    # Dynamic: active_solicitation now compares against today, so a hardcoded
+    # date here becomes a time bomb the day it passes (2026-08-14 already did).
+    "close_date": (datetime.date.today() + datetime.timedelta(days=150)).isoformat(),
     "days_to_close": 150,
     "est_value": None,
     "incumbent": None,

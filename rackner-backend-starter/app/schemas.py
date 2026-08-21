@@ -269,10 +269,17 @@ TIME_BUCKET_LABELS: dict[str, str] = {
 def compatibility_score(factors: list[FitFactor]) -> float:
     """Weighted 1–5 factor scores → a 0–100 compatibility score.
 
-    A straight weighted mean lands in [1,5]; (x-1)/4 rescales that to [0,1].
+    A weighted mean lands in [1,5]; (x-1)/4 rescales that to [0,1]. The mean
+    divides by the weights actually present: the prompt asks for weights that
+    sum to 1.0, but malformed factors are dropped upstream and duplicates
+    happen — an unnormalized sum turns a partial set into a nonsense score
+    (one surviving 0.2-weight factor scored the whole analysis negative).
     Derived on the backend — the model is never asked to compute it.
     """
-    weighted = sum(f.weight * f.score for f in factors)
+    total_weight = sum(f.weight for f in factors)
+    if total_weight <= 0:
+        return 0.0
+    weighted = sum(f.weight * f.score for f in factors) / total_weight
     return round((weighted - 1) / 4 * 100, 1)
 
 

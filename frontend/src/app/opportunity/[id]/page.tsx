@@ -72,8 +72,12 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
   useEffect(() => {
     if (!ready) return;
     if (email) getProfile(email).then(setProfile).catch(() => {});
-    getOpportunity(id).then(setOpp).catch((e) => setError(String(e)));
-    getAnalysis(id).then(setAnalysis).catch((e) => setError(String(e)));
+    getOpportunity(id)
+      .then(setOpp)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    getAnalysis(id)
+      .then(setAnalysis)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
     getSourceDocument(id)
       .then(setDoc)
       .catch(() => setDocMissing(true));

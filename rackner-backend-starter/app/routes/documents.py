@@ -13,6 +13,8 @@ re-parse could produce different text than the quotes were verified against.
 
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -37,6 +39,26 @@ import threading as _threading
 
 _builds_inflight: set[str] = set()
 _builds_lock = _threading.Lock()
+
+# opp.id -> (monotonic deadline, link count attempted). A pass that could not
+# resolve every link (dead host, quota stop) keeps attachments_accounted low,
+# which made EVERY subsequent read — document view, chat turn, analysis — re-run
+# the full pass, re-billing every good attachment against SAM quota forever.
+# Suppress whole passes for a TTL instead. Process-local and never persisted:
+# the DB still says "unresolved", so retry intent survives restarts and the
+# TTL window — transient blips recover, just not on every read.
+_fetch_backoff: dict[str, tuple[float, int]] = {}
+
+
+def _in_backoff(opp_id: str, n_links: int) -> bool:
+    entry = _fetch_backoff.get(opp_id)
+    if entry is None:
+        return False
+    deadline, seen = entry
+    if time.monotonic() >= deadline:
+        _fetch_backoff.pop(opp_id, None)
+        return False
+    return n_links <= seen  # links added since the failed pass break through
 
 
 def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
@@ -80,6 +102,8 @@ def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
         wants_more = len(links) > (doc.attachments_accounted or 0)
         if not needs_description and not wants_more:
             return doc  # the common case: zero fetching, zero SAM calls
+        if not needs_description and _in_backoff(opp.id, len(links)):
+            return doc  # a recent pass already failed on these links
 
     with _builds_lock:
         if opp.id in _builds_inflight:
@@ -102,6 +126,13 @@ def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
         finally:
             with _builds_lock:
                 _builds_inflight.discard(opp.id)
+        if exhausted:
+            _fetch_backoff.pop(opp.id, None)
+        else:
+            _fetch_backoff[opp.id] = (
+                time.monotonic() + config.ATTACHMENT_RETRY_BACKOFF_MINUTES * 60,
+                len(links),
+            )
     # exhausted: every link resolved (fetched, or dead in a way retrying won't
     # fix) — record them all so no future read re-attempts them. A quota-stop
     # accounts only the successes, leaving the rest for a fresh-quota day.

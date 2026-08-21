@@ -109,7 +109,7 @@ export async function deleteLifecyclePlan(): Promise<void> {
     headers: headers(),
   });
   if (res.status === 404) return; // already gone — same end state
-  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(await errorMessage(res));
 }
 
 export async function uploadLifecyclePlan(file: File): Promise<LifecycleProfile> {

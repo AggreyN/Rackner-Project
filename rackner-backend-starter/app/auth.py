@@ -16,6 +16,7 @@ Two modes, selected by `AUTH_MODE` in config:
 whichever mode is active.
 """
 
+import threading
 import time
 
 import requests
@@ -76,7 +77,13 @@ def _user_from_local_token(token: str, db: Session) -> User:
 # --------------------------------------------------------------------------- #
 # Cognito mode — validate the pool's JWT against its JWKS
 # --------------------------------------------------------------------------- #
-_jwks_cache: dict = {"keys": None, "fetched_at": 0.0}
+_jwks_cache: dict = {"keys": None, "fetched_at": 0.0, "miss_refetch_at": None}
+_jwks_miss_lock = threading.Lock()
+# An unknown kid triggers a JWKS refetch — but anyone can mint tokens with
+# bogus kids, so unthrottled that is an unauthenticated make-us-hammer-Cognito
+# vector. One miss-refetch per cooldown window; real rotations still land on
+# the first miss.
+_JWKS_MISS_COOLDOWN_S = 60.0
 
 
 def _get_jwks(*, force_refresh: bool = False) -> list[dict]:
@@ -106,11 +113,24 @@ def _key_for(kid: str | None) -> dict | None:
     up to an hour after a rotation.
     """
     key = next((k for k in _get_jwks() if k.get("kid") == kid), None)
-    if key is None:
-        key = next(
-            (k for k in _get_jwks(force_refresh=True) if k.get("kid") == kid), None
-        )
-    return key
+    if key is not None:
+        return key
+    with _jwks_miss_lock:
+        # Re-check first: after a real rotation, a page fires several requests
+        # at once — the first through this lock refetches, and the rest must
+        # find the rotated key here instead of 401ing the user out.
+        key = next((k for k in _get_jwks() if k.get("kid") == kid), None)
+        if key is not None:
+            return key
+        last = _jwks_cache["miss_refetch_at"]
+        now = time.monotonic()
+        if last is not None and now - last < _JWKS_MISS_COOLDOWN_S:
+            return None  # recently refetched on a miss — this kid is bogus
+        keys = _get_jwks(force_refresh=True)
+        # Stamp only after a SUCCESSFUL fetch — a Cognito timeout must not
+        # consume the window and lock a genuine rotation out for 60s.
+        _jwks_cache["miss_refetch_at"] = now
+        return next((k for k in keys if k.get("kid") == kid), None)
 
 
 def _verify_cognito_token(token: str) -> dict:

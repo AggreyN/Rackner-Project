@@ -323,6 +323,12 @@ def _wait_for_inflight(
     while time.monotonic() < deadline:
         if not _is_inflight(user_id, opportunity_id):
             break
+        # Generation runs for minutes and every waiter would otherwise camp on
+        # a pooled connection the entire wait (autobegin keeps it checked out
+        # until commit/rollback) — a handful of waiters exhausted the pool
+        # sitewide. Roll back to return the connection before sleeping; the
+        # next poll checks one out again for milliseconds.
+        db.rollback()
         time.sleep(0.4)
         db.expire_all()  # fresh read — the warm wrote via another session
         row = _cached_analysis(db, opportunity_id, user_id)
@@ -342,7 +348,17 @@ def get_analysis(
     if opp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown opportunity.")
     ensure_visible(opp, user)
-    return _to_schema(ensure_analysis(db, opp, user))
+    try:
+        return _to_schema(ensure_analysis(db, opp, user))
+    except RuntimeError as exc:
+        # The model returned nothing usable; nothing was cached. A bare 500
+        # bypasses CORS (unreadable cross-origin) — name it instead. 502, not
+        # 503: the frontend poller reads non-outage 503s as "still generating".
+        log.warning("analysis generation unusable for %s: %s", opportunity_id, exc)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "The analysis engine returned an unusable response. Try again in a moment.",
+        ) from exc
 
 
 @router.post("/llm/extract", response_model=list[Obligation])

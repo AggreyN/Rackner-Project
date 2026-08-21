@@ -260,9 +260,13 @@ def test_published_contact_is_preferred_over_guessing():
 
 
 def test_open_solicitation_sets_the_integrity_flag():
+    # A close date in the FUTURE — the flag now tracks whether the window is
+    # actually open, not merely whether a close date exists (a hardcoded date
+    # here started failing the day it passed, which is the fix working).
+    still_open = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
     result = email_discovery.discover(
         {"id": "X", "agency": "Dept Of Defense", "office": "", "kind": "solicitation",
-         "close_date": "2026-08-14", "_point_of_contact": SAM_RECORD["pointOfContact"]}
+         "close_date": still_open, "_point_of_contact": SAM_RECORD["pointOfContact"]}
     )
     assert result["active_solicitation"] is True
 

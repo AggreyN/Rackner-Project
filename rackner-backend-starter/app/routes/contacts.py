@@ -25,7 +25,7 @@ from app.services.http import UpstreamError
 router = APIRouter(tags=["contacts"])
 
 
-def _to_schema(row: Contact) -> ContactResult:
+def _to_schema(row: Contact, opp: Opportunity) -> ContactResult:
     return ContactResult(
         opportunity_id=row.opportunity_id,
         name=row.name,
@@ -33,7 +33,12 @@ def _to_schema(row: Contact) -> ContactResult:
         office=row.office or "",
         email=row.email or "",
         confidence=row.confidence,
-        active_solicitation=row.active_solicitation,
+        # Derived at serve time, never from the stored row: "open" is a
+        # function of today's date, and Contact rows are cached forever — a
+        # frozen flag kept warning about solicitations that closed months ago.
+        active_solicitation=email_discovery._solicitation_open(
+            {"kind": opp.kind, "close_date": opp.close_date}
+        ),
     )
 
 
@@ -50,7 +55,7 @@ def get_contact(
 
     cached = db.scalar(select(Contact).where(Contact.opportunity_id == opportunity_id))
     if cached is not None:
-        return _to_schema(cached)
+        return _to_schema(cached, opp)
 
     # The published point-of-contact rides on the SAM notice, not on our cached
     # row, so re-fetch it. A SAM outage is not fatal here — fall through to

@@ -60,6 +60,10 @@ os.environ["SAM_GOV_API_KEY"] = "test-not-a-real-key"
 os.environ["CONFIG_SECRET_NAME"] = "test-nonexistent-secret"
 os.environ["SAM_SEARCH_TTL_HOURS"] = "12"
 os.environ["LLM_EXTRACT_CONCURRENCY"] = "8"
+# TTL 0 = attachment-fetch backoff always expired: several tests deliberately
+# run a failed pass then an immediate successful retry. The backoff regression
+# test opts in by monkeypatching the knob.
+os.environ["ATTACHMENT_RETRY_BACKOFF_MINUTES"] = "0"
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 os.environ.setdefault("JWT_SECRET", "test-only-secret-not-a-real-key")
 
@@ -169,6 +173,21 @@ def _clean_search_ledger(_migrated):
         db.commit()
     finally:
         db.close()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_module_throttles():
+    """Two process-local throttles added 2026-08-21 leak across tests if not
+    reset: the JWKS miss-refetch cooldown (one test's bogus-kid miss would
+    suppress another's rotation refetch) and the attachment-fetch backoff
+    memo (a test that opts into a real TTL would suppress later tests that
+    reuse the same opportunity id)."""
+    from app import auth
+    from app.routes import documents
+
+    auth._jwks_cache["miss_refetch_at"] = None
+    documents._fetch_backoff.clear()
     yield
 
 

@@ -23,7 +23,11 @@ module never sends anything; it only proposes an address.
 
 from __future__ import annotations
 
+import datetime
 import re
+
+# Generational suffixes are not surnames — "Doe Jr." must guess doe@, not jr@.
+_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 
 # Federal address patterns, most→least common. The score is a prior, not a
 # measurement — nothing here has been verified against a mail server.
@@ -78,8 +82,18 @@ def domain_for_agency(agency: str, office: str | None = None) -> str | None:
 def _split_name(full_name: str) -> tuple[str, str, str]:
     """('Argenies Gonzalez (Contracting Officer)') -> ('argenies', '', 'gonzalez')."""
     cleaned = _TITLE_IN_PARENS.sub("", full_name or "").strip()
+    # SAM POCs frequently arrive as "Last, First [Middle]" — swap to natural
+    # order before splitting, or every guessed pattern flips (doe.jane@ for
+    # Jane Doe was the shipped behavior).
+    if "," in cleaned:
+        last_part, _, first_part = cleaned.partition(",")
+        cleaned = f"{first_part.strip()} {last_part.strip()}"
     parts = [_NON_NAME.sub("", p.lower()) for p in cleaned.split()]
     parts = [p for p in parts if p]
+    # Trailing position only: "Patel, V" must keep its single-letter first
+    # initial — stripping any 'v' anywhere threw away real names.
+    while len(parts) > 2 and parts[-1] in _SUFFIXES:
+        parts.pop()
     if not parts:
         return "", "", ""
     if len(parts) == 1:
@@ -108,6 +122,30 @@ def candidates(full_name: str, domain: str) -> list[tuple[str, float]]:
     return out
 
 
+def _solicitation_open(opportunity: dict) -> bool:
+    """Is this an OPEN solicitation (outreach constrained under the PIA)?
+
+    The old check was `bool(close_date)` — a notice whose deadline passed
+    months ago still flagged "active solicitation" forever. A close date in
+    the past no longer constrains; an unparseable one stays conservative.
+    """
+    if opportunity.get("kind") == "expiring_award":
+        return False
+    raw = opportunity.get("close_date")
+    if not raw:
+        return False
+    if isinstance(raw, datetime.datetime):
+        close = raw.date()
+    elif isinstance(raw, datetime.date):
+        close = raw
+    else:
+        try:
+            close = datetime.date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            return True  # dated but unreadable — keep the outreach warning
+    return close >= datetime.date.today()
+
+
 def discover(opportunity: dict) -> dict | None:
     """Best contact for an opportunity, as a ContactResult-shaped dict.
 
@@ -119,7 +157,7 @@ def discover(opportunity: dict) -> dict | None:
     agency = opportunity.get("agency") or ""
     office = opportunity.get("office") or ""
     # Open solicitations constrain outreach (Procurement Integrity Act).
-    active = bool(opportunity.get("close_date")) and opportunity.get("kind") != "expiring_award"
+    active = _solicitation_open(opportunity)
 
     # Tier 1: SAM published it.
     for poc in opportunity.get("_point_of_contact") or []:

@@ -135,19 +135,23 @@ def test_unknown_kid_triggers_one_forced_jwks_refetch(monkeypatch):
     refresh rather than 401ing until the hourly expiry."""
     from app import auth
 
-    fetches = {"n": 0}
+    fetches = {"n": 0, "forced": 0}
     old = [{"kid": "old-key"}]
     new = [{"kid": "old-key"}, {"kid": "new-key"}]
 
     def fake_get_jwks(*, force_refresh: bool = False):
         fetches["n"] += 1
+        if force_refresh:
+            fetches["forced"] += 1
         return new if force_refresh else old
 
     monkeypatch.setattr(auth, "_get_jwks", fake_get_jwks)
 
     key = auth._key_for("new-key")
     assert key == {"kid": "new-key"}
-    assert fetches["n"] == 2, "expected exactly one cached read + one forced refetch"
+    # The miss path re-checks the cache under its lock before refetching, so
+    # cached reads vary — the invariant is exactly ONE forced network refetch.
+    assert fetches["forced"] == 1, "expected exactly one forced refetch"
 
 
 def test_known_kid_uses_the_cache_only(monkeypatch):

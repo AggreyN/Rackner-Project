@@ -113,6 +113,10 @@ SAM_GOV_API_KEY = get_secret("SAM_GOV_API_KEY", "")
 # solicitation package, not just the description. Each file download bills the
 # SAM key once, ever (build-once caching). Caps bound cost and memory.
 SAM_MAX_ATTACHMENTS = int(os.getenv("SAM_MAX_ATTACHMENTS", "8"))
+# After a fetch pass that could NOT resolve every link (dead host, quota stop),
+# wait this long before re-running a pass — otherwise every document read
+# re-downloads (and re-bills) all attachments until the dead link heals.
+ATTACHMENT_RETRY_BACKOFF_MINUTES = float(os.getenv("ATTACHMENT_RETRY_BACKOFF_MINUTES", "15"))
 SAM_ATTACHMENT_MAX_MB = int(os.getenv("SAM_ATTACHMENT_MAX_MB", "25"))
 SAM_ATTACHMENTS_TOTAL_MB = int(os.getenv("SAM_ATTACHMENTS_TOTAL_MB", "60"))
 

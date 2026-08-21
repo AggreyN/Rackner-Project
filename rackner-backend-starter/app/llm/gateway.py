@@ -251,6 +251,15 @@ def analyze(opportunity: dict, lifecycle_profile: dict, sections: list) -> dict:
         verdict_note = result["verdict_note"]
 
     factors = [f for f in (_normalize_factor(r) for r in raw_factors) if f]
+    if not factors or sum(f["weight"] for f in factors) <= 0:
+        # Persisting a factor-less (or all-zero-weight) row would pin a
+        # meaningless 0-score verdict under the one-analysis-per-(opp,user)
+        # index. Fail the generation instead — nothing is cached and the next
+        # request retries.
+        raise RuntimeError(
+            "analysis model returned no usable fit factors "
+            f"({len(raw_factors)} raw, {len(factors)} kept)"
+        )
     obligations = extract_obligations(sections)
     # The wire contract is 0-100; a wild factor slipping through must clamp
     # HERE — persisted out-of-range scores 500'd every later read of that

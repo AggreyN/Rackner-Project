@@ -70,7 +70,13 @@ function HomeInner() {
 
   const [results, setResults] = useState<OpportunitySummary[]>([]);
   const [suggested, setSuggested] = useState<OpportunitySummary[] | null>(null);
+  const [suggestedError, setSuggestedError] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Which "urlQuery|preset" the results on screen belong to. `busy` alone
+  // races the URL: the router commits new params a beat before the effect
+  // flips busy=true, so tests (and users) could see data-busy="false" over
+  // the PREVIOUS results. Derived `settled` closes that window.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadProfile = useCallback(() => {
@@ -78,9 +84,16 @@ function HomeInner() {
   }, [email]);
 
   const loadSuggested = useCallback(() => {
+    // A failed fetch and a successful-but-empty feed are different states —
+    // collapsing both into [] showed a false "check the backend" banner on
+    // every cold cache.
+    setSuggestedError(false);
     getSuggested({})
       .then(setSuggested)
-      .catch(() => setSuggested([]));
+      .catch(() => {
+        setSuggestedError(true);
+        setSuggested([]);
+      });
   }, []);
 
   useEffect(() => {
@@ -105,6 +118,7 @@ function HomeInner() {
     setError(null);
     setBusy(true);
     /* eslint-enable react-hooks/set-state-in-effect */
+    const key = `${urlQuery ?? ""}|${preset}`;
     searchOpportunities(urlQuery ?? "", filtersFor(preset))
       .then((rows) => {
         if (!cancelled) setResults(rows);
@@ -116,7 +130,10 @@ function HomeInner() {
         }
       })
       .finally(() => {
-        if (!cancelled) setBusy(false);
+        if (!cancelled) {
+          setBusy(false);
+          setLoadedKey(key);
+        }
       });
     return () => {
       cancelled = true;
@@ -147,6 +164,10 @@ function HomeInner() {
   if (!ready) return <main className="min-h-screen bg-[#f5f7f9]" />;
 
   const showingSearch = searchMode;
+  // Settled = not fetching AND the results on screen match the current URL.
+  // The instant params change this flips false — the same commit that first
+  // reflects the new URL — so data-busy never lies to a fast observer.
+  const settled = !busy && loadedKey === `${urlQuery ?? ""}|${preset}`;
 
   return (
     <main className="min-h-screen bg-[#f5f7f9]">
@@ -196,10 +217,10 @@ function HomeInner() {
         {error && <p className="mt-4 text-sm text-[#a3231f]">{error}</p>}
 
         {showingSearch ? (
-          <section className="mt-8" data-testid="results" data-busy={busy}>
+          <section className="mt-8" data-testid="results" data-busy={!settled}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h3 className="text-base font-semibold text-[#16324f]">
-                {busy
+                {!settled
                   ? "Searching…"
                   : `${results.length} result${results.length === 1 ? "" : "s"}${
                       (urlQuery ?? "").trim() ? ` for “${(urlQuery ?? "").trim()}”` : ""
@@ -209,6 +230,10 @@ function HomeInner() {
                 onClick={() => {
                   setResults([]);
                   setSuggested(null);
+                  // loadedKey must not describe results we just threw away —
+                  // re-searching the same query would briefly render "settled"
+                  // over the cleared state.
+                  setLoadedKey(null);
                   navigate(null, "all");
                 }}
                 className="shrink-0 text-xs text-[#16324f] underline underline-offset-2 hover:text-[#0f2438]"
@@ -216,7 +241,7 @@ function HomeInner() {
                 Clear
               </button>
             </div>
-            {!profile?.lifecycle && !busy && results.length > 0 && (
+            {!profile?.lifecycle && settled && results.length > 0 && (
               <p className="mb-3 text-xs text-[#51606f]" data-testid="neutral-note">
                 Neutral results — no lifecycle plan on file, so nothing is scored or ranked by
                 fit.
@@ -224,7 +249,7 @@ function HomeInner() {
             )}
             {/* Stale results must not linger under a new filter — swap to
                 skeletons so what's on screen always matches the active window. */}
-            {busy ? (
+            {!settled ? (
               <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2" aria-hidden>
                 {[0, 1].map((i) => (
                   <div key={i} className="h-36 animate-pulse border border-[#d7dee6] bg-white" />
@@ -261,7 +286,9 @@ function HomeInner() {
               </div>
             ) : suggested.length === 0 ? (
               <p className="border border-[#d7dee6] bg-white p-6 text-sm text-[#51606f]">
-                Couldn&apos;t load suggestions. Check the backend connection and retry.
+                {suggestedError
+                  ? "Couldn't load suggestions. Check the backend connection and retry."
+                  : "No suggestions yet — the live SAM.gov feed refreshes throughout the day. Try a search above, or add your lifecycle plan to get matches ranked by fit."}
               </p>
             ) : (
               <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
