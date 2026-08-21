@@ -121,6 +121,19 @@ class Opportunity(Base):
     # package lives behind these, not in the description. Captured at search
     # time so fetching them later costs no extra notice lookup.
     resource_links: Mapped[list | None] = mapped_column(JSON)
+    # When a DETAIL view last attempted the SAM description fetch (distinct
+    # from fetched_at, which any search bumps). Guards against re-spending
+    # SAM calls on genuinely-empty descriptions without blocking the crucial
+    # FIRST detail fetch of a freshly searched row.
+    description_fetched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    # Imported (non-SAM) documents are private to their uploader; null means
+    # public/SAM-sourced. import_hash dedupes identical re-uploads per owner.
+    owner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    import_hash: Mapped[str | None] = mapped_column(String(64))
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
@@ -133,6 +146,27 @@ class Opportunity(Base):
     )
     source_documents: Mapped[list["SourceDocument"]] = relationship(
         back_populates="opportunity", cascade="all, delete-orphan"
+    )
+
+
+class Bookmark(Base):
+    """A user's saved opportunity (the saved drawer). Bare pairs — the
+    frontend resolves ids through the cached GET /opportunities/{id}."""
+
+    __tablename__ = "bookmarks"
+    __table_args__ = (
+        Index("uq_bookmarks_user_opp", "user_id", "opportunity_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    opportunity_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("opportunities.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
     )
 
 

@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import config
-from app.deps import current_user, get_db
+from app.deps import current_user, get_db, ensure_visible
 from app.models import Analysis as AnalysisModel
 from app.models import Opportunity
 from app.models import SourceDocument as SourceDocumentModel
@@ -84,13 +84,18 @@ def get_or_build_document(db: Session, opp: Opportunity) -> SourceDocumentModel:
     with _builds_lock:
         if opp.id in _builds_inflight:
             # Another request is mid-build (downloads can take a while). Serve
-            # the current state; the winner's build lands shortly.
+            # the current state; the winner's build lands shortly. With no
+            # stored doc yet, return a TRANSIENT empty one — persisting a
+            # placeholder raced the winner's insert and could discard its
+            # paid-for downloads (audit-2 finding).
             if doc is not None:
                 return doc
-            blobs, exhausted = [], False  # placeholder empty build, retried later
-        else:
-            _builds_inflight.add(opp.id)
-            blobs = None  # sentinel: we own the build
+            return SourceDocumentModel(
+                opportunity_id=opp.id, label="", attachments_ingested=0,
+                attachments_accounted=0, has_description=False,
+            )
+        _builds_inflight.add(opp.id)
+        blobs = None  # sentinel: we own the build
     if blobs is None:
         try:
             blobs, exhausted = attachments.fetch_all(links)
@@ -204,4 +209,5 @@ def get_document(
     opp = db.get(Opportunity, opportunity_id)
     if opp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown opportunity.")
+    ensure_visible(opp, user)
     return to_schema(get_or_build_document(db, opp))

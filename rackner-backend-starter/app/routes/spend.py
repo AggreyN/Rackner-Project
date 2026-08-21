@@ -14,7 +14,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.deps import current_user, get_db
+from app.deps import current_user, get_db, ensure_visible
 from app.models import Opportunity, User
 from app.schemas import SpendSummary
 from app.services import usaspending
@@ -32,6 +32,7 @@ def get_spend(
     opp = db.get(Opportunity, opportunity_id)
     if opp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown opportunity.")
+    ensure_visible(opp, user)
 
     try:
         payload = usaspending.spend_summary(

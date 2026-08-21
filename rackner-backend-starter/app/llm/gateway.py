@@ -268,6 +268,38 @@ def analyze(opportunity: dict, lifecycle_profile: dict, sections: list) -> dict:
     }
 
 
+def extract_import_metadata(text: str) -> dict:
+    """Card metadata for an imported (non-SAM) document, from its opening
+    pages. Bedrock mode only; ANY failure returns {} and the caller falls
+    back to filename-derived defaults — an import must never fail because
+    metadata extraction hiccupped. Interactive profile: this call sits
+    inside the upload request."""
+    if config.LLM_MODE != "bedrock" or not (text or "").strip():
+        return {}
+    from app.llm import bedrock_client
+
+    try:
+        parsed = _parse_json(
+            bedrock_client.invoke(
+                prompts.IMPORT_METADATA_SYSTEM,
+                prompts.import_metadata_user_prompt(text[:12000]),
+                max_tokens=512,
+                profile="interactive",
+            )
+        )
+    except Exception:  # noqa: BLE001 — fail-soft to filename defaults
+        logging.getLogger(__name__).warning("import metadata extraction failed", exc_info=True)
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+    for key in ("title", "agency", "naics", "set_aside", "close_date", "solicitation_number"):
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip():
+            out[key] = value.strip()[:500]
+    return out
+
+
 def prescreen_scores(lifecycle_profile: dict, rows: list[dict]) -> dict[str, float]:
     """Batch-score notice cards against the profile — ONE model call per page.
 

@@ -21,7 +21,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.deps import current_user, get_db
+from app.deps import current_user, get_db, ensure_visible
 from app.llm import gateway
 from app.models import Opportunity, User
 from app.routes.documents import get_or_build_document
@@ -53,6 +53,7 @@ def ask(
     opp = db.get(Opportunity, opportunity_id)
     if opp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown opportunity.")
+    ensure_visible(opp, user)
 
     doc = get_or_build_document(db, opp)
     if not doc.sections:

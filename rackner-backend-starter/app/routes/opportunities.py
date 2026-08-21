@@ -28,7 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import config
-from app.deps import current_user, get_db
+from app.deps import current_user, ensure_visible, get_db
 from app.llm import gateway
 from app.models import Analysis as AnalysisModel
 from app.models import FitEstimate, SearchFetch
@@ -77,58 +77,67 @@ def _lifecycle(db: Session, user: User) -> dict | None:
     }
 
 
+def _upsert_row(db: Session, s: dict) -> None:
+    row = db.get(Opportunity, s["id"])
+    if row is None:
+        row = Opportunity(id=s["id"])
+        db.add(row)
+    _assign_row_fields(row, s)
+
+
 def _cache(db: Session, summaries: list[dict]) -> None:
     """Upsert by id so detail/analysis work after the search that found them."""
     for s in summaries:
-        if not s.get("id"):
+        if not s.get("id") or s.get("_replayed"):
+            # Replayed rows came FROM this cache — re-upserting would bump
+            # fetched_at on zero-cost reads and corrupt freshness semantics.
             continue
-        row = db.get(Opportunity, s["id"])
-        if row is None:
-            row = Opportunity(id=s["id"])
-            db.add(row)
-        row.title = s.get("title") or ""
-        row.agency = s.get("agency") or ""
-        row.office = s.get("office")
-        row.solicitation_number = s.get("solicitation_number")
-        row.naics = s.get("naics")
-        row.set_aside = s.get("set_aside")
-        row.kind = s.get("kind") or "solicitation"
-        # Only set when present: cache-replayed summaries don't carry the
-        # internal key, and blanking a stored URL on every replay loses data.
-        if s.get("_source_url"):
-            row.source_url = s["_source_url"]
-        row.est_value = s.get("est_value")
-        row.incumbent = s.get("incumbent")
-        row.current_award_value = s.get("current_award_value")
-        for field, key in (("close_date", "close_date"), ("expiry_date", "expiry_date")):
-            raw = s.get(key)
-            setattr(row, field, datetime.date.fromisoformat(raw) if raw else None)
-        # Only overwrite a stored description with a non-empty one: the search
-        # payload has none, and blanking it would destroy the grounding text a
-        # previous detail fetch already stored.
-        if s.get("description"):
-            row.description = s["description"]
-        # Same guard for attachment links: cached-row fallbacks don't carry the
-        # key, and blanking links would orphan an already-built full document.
-        if s.get("_resource_links"):
-            row.resource_links = s["_resource_links"]
-        # A live fetch that returns this row makes it fresh NOW — without this
-        # the dashboard replay's freshness-window filter dropped rows a live
-        # refresh had just paid for (audit 2026-08-19).
-        row.fetched_at = datetime.datetime.now(datetime.timezone.utc)
+        _upsert_row(db, s)
     try:
         db.commit()
     except IntegrityError:
-        # Two identical searches raced the same INSERTs. Retry once: the
-        # second pass sees the winner's rows via db.get and updates them.
+        # Two identical searches raced the same INSERTs. Retry once with the
+        # FULL upsert — a minimal insert here left husk rows (blank agency,
+        # wrong kind, no expiry: audit-2 finding).
         db.rollback()
         for s in summaries:
-            if not s.get("id"):
+            if not s.get("id") or s.get("_replayed"):
                 continue
-            if db.get(Opportunity, s["id"]) is None:
-                db.add(Opportunity(id=s["id"], title=s.get("title") or "",
-                                   agency=s.get("agency") or ""))
+            _upsert_row(db, s)
         db.commit()
+
+
+def _assign_row_fields(row: Opportunity, s: dict) -> None:
+    row.title = s.get("title") or ""
+    row.agency = s.get("agency") or ""
+    row.office = s.get("office")
+    row.solicitation_number = s.get("solicitation_number")
+    row.naics = s.get("naics")
+    row.set_aside = s.get("set_aside")
+    row.kind = s.get("kind") or "solicitation"
+    # Only set when present: cache-replayed summaries don't carry the
+    # internal key, and blanking a stored URL on every replay loses data.
+    if s.get("_source_url"):
+        row.source_url = s["_source_url"]
+    row.est_value = s.get("est_value")
+    row.incumbent = s.get("incumbent")
+    row.current_award_value = s.get("current_award_value")
+    for field, key in (("close_date", "close_date"), ("expiry_date", "expiry_date")):
+        raw = s.get(key)
+        setattr(row, field, datetime.date.fromisoformat(raw) if raw else None)
+    # Only overwrite a stored description with a non-empty one: the search
+    # payload has none, and blanking it would destroy the grounding text a
+    # previous detail fetch already stored.
+    if s.get("description"):
+        row.description = s["description"]
+    # Same guard for attachment links: cached-row fallbacks don't carry the
+    # key, and blanking links would orphan an already-built full document.
+    if s.get("_resource_links"):
+        row.resource_links = s["_resource_links"]
+    # A live fetch that returns this row makes it fresh NOW — without this
+    # the dashboard replay's freshness-window filter dropped rows a live
+    # refresh had just paid for (audit 2026-08-19).
+    row.fetched_at = datetime.datetime.now(datetime.timezone.utc)
 
 
 def _to_summary(row: Opportunity, today: datetime.date | None = None) -> dict:
@@ -171,9 +180,11 @@ def _clean(summaries: list[dict]) -> list[OpportunitySummary]:
 
 def _row_recently_fetched(row: Opportunity) -> bool:
     """A notice with a GENUINELY empty description used to refetch SAM (2
-    calls) on every detail view forever. If we fetched it live recently,
-    serve it as-is; retry only once the freshness window lapses."""
-    fetched = row.fetched_at
+    calls) on every detail view forever. Keyed off description_fetched_at —
+    the record of an actual DETAIL attempt. (Keying off fetched_at, which any
+    search bumps, blocked the crucial FIRST detail fetch of freshly searched
+    rows: audit-2 regression.)"""
+    fetched = row.description_fetched_at
     if fetched is None:
         return False
     if fetched.tzinfo is None:  # SQLite round-trips naive datetimes
@@ -226,7 +237,11 @@ def _cached_award_rows(db: Session, from_m: int, to_m: int, limit: int) -> list[
     today = datetime.date.today()
     rows = db.scalars(
         select(Opportunity)
-        .where(Opportunity.kind == "expiring_award", Opportunity.expiry_date.is_not(None))
+        .where(
+            Opportunity.owner_id.is_(None),
+            Opportunity.kind == "expiring_award",
+            Opportunity.expiry_date.is_not(None),
+        )
         .order_by(Opportunity.fetched_at.desc())
         .limit(500)
     ).all()
@@ -234,7 +249,9 @@ def _cached_award_rows(db: Session, from_m: int, to_m: int, limit: int) -> list[
     for row in rows:
         months = round((row.expiry_date - today).days / 30.44)
         if from_m <= months <= to_m:
-            out.append(_to_summary(row))
+            summary = _to_summary(row)
+            summary["_replayed"] = True  # already cached; _cache must not re-stamp
+            out.append(summary)
             if len(out) >= limit:
                 break
     return out
@@ -275,6 +292,7 @@ def _cached_sam_rows(db: Session, *, query: str, kinds: list[str], limit: int) -
     wanted = [k for k in kinds if k in SAM_KINDS] or list(SAM_KINDS)
     today = datetime.date.today()
     stmt = select(Opportunity).where(
+        Opportunity.owner_id.is_(None),  # imported docs are private, never listed
         Opportunity.kind.in_(wanted),
         (Opportunity.close_date.is_(None)) | (Opportunity.close_date >= today),
     )
@@ -300,7 +318,10 @@ def _cached_sam_rows(db: Session, *, query: str, kinds: list[str], limit: int) -
     rows = db.scalars(
         stmt.order_by(Opportunity.fetched_at.desc()).limit(limit)
     ).all()
-    return [_to_summary(row) for row in rows]
+    out = [_to_summary(row) for row in rows]
+    for summary in out:
+        summary["_replayed"] = True  # already cached; _cache must not re-stamp
+    return out
 
 
 def _collect(
@@ -366,6 +387,11 @@ def _collect(
                 expiring = usaspending.expiring_awards(
                     from_months=from_m, to_months=to_m, limit=limit
                 )
+                # Cache the FULL fetched set BEFORE any q-filtering: the
+                # ledger marks this window fresh, so rows dropped here would
+                # otherwise vanish from every replayed dashboard for 12h
+                # (audit-2: a "cyber" search poisoned the whole radar).
+                _cache(db, expiring)
                 _ledger_stamp(db, usp_key)
             except UpstreamError as exc:
                 failures.append(exc)
@@ -570,9 +596,12 @@ def get_opportunity(
     round-trip per notice, and it is what /document grounds obligations in.
     """
     row = db.get(Opportunity, opportunity_id)
+    if row is not None:
+        ensure_visible(row, user)
     if row is not None and (
         row.description
         or row.kind == "expiring_award"
+        or row.owner_id is not None
         or _row_recently_fetched(row)
     ):
         summary = _to_summary(row)
@@ -606,6 +635,13 @@ def get_opportunity(
 
     fetched["description"] = samgov.fetch_description(fetched.get("_description_url", ""))
     _cache(db, [fetched])
+    cached_row = db.get(Opportunity, fetched["id"])
+    if cached_row is not None:
+        # Record the ATTEMPT (even when the description came back empty) so
+        # empty-description notices stop respending SAM per view — without
+        # ever blocking a first attempt.
+        cached_row.description_fetched_at = datetime.datetime.now(datetime.timezone.utc)
+        db.commit()
     _apply_fit(db, user, [fetched], _lifecycle(db, user))
     _maybe_prewarm(
         background,

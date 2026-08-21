@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.deps import current_user, get_db
+from app.deps import current_user, get_db, ensure_visible
 from app.models import Contact, Opportunity, User
 from app.schemas import ContactResult
 from app.services import email_discovery, samgov
@@ -46,6 +46,7 @@ def get_contact(
     opp = db.get(Opportunity, opportunity_id)
     if opp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown opportunity.")
+    ensure_visible(opp, user)
 
     cached = db.scalar(select(Contact).where(Contact.opportunity_id == opportunity_id))
     if cached is not None:

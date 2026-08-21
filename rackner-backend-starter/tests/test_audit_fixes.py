@@ -227,15 +227,18 @@ def test_recently_fetched_empty_description_row_skips_sam(client, auth_headers, 
             id="AUDIT-EMPTYDESC", title="No description notice", agency="DoD"
         )
         row.description = ""
+        # The corrected guard keys off an actual DETAIL attempt, not search
+        # freshness (audit-2: keying off fetched_at blocked first fetches).
+        row.description_fetched_at = datetime.datetime.now(datetime.timezone.utc)
         db.add(row)
-        db.commit()  # fetched_at defaults to NOW -> inside the freshness window
+        db.commit()
     finally:
         db.close()
 
     for _ in range(3):
         r = client.get("/opportunities/AUDIT-EMPTYDESC", headers=auth_headers)
         assert r.status_code == 200
-    assert calls["n"] == 0, "a recently fetched row must serve stale, not respend SAM"
+    assert calls["n"] == 0, "a recorded description attempt must not be repeated in the TTL"
 
 
 def test_delete_lifecycle_plan_removes_plan_and_scores(client, auth_headers):

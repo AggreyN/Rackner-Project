@@ -34,7 +34,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import config
-from app.deps import current_user, get_db
+from app.deps import current_user, get_db, ensure_visible
 from app.llm import gateway
 from app.models import Analysis as AnalysisModel
 from app.models import LifecycleProfile as LifecycleProfileModel
@@ -204,6 +204,14 @@ def _generate_and_store(db: Session, opp: Opportunity, user: User) -> AnalysisMo
     build_identity = (doc.id, doc.created_at)
     opp_dict = _opportunity_dict(opp)
     profile_dict = _lifecycle_dict(db, user)
+    # Identity of the PLAN this analysis scores against — a re-upload or
+    # removal mid-generation must make the result transient, or a
+    # stale-profile verdict survives the wipe (audit-2 finding).
+    plan_marker = db.scalar(
+        select(LifecycleProfileModel.updated_at).where(
+            LifecycleProfileModel.user_id == user.id
+        )
+    )
     db.commit()  # release the connection for the duration of the model call
     result = gateway.analyze(opp_dict, profile_dict, sections)
 
@@ -239,6 +247,18 @@ def _generate_and_store(db: Session, opp: Opportunity, user: User) -> AnalysisMo
             log.info(
                 "analysis for %s served transient: the grounding document "
                 "was rebuilt mid-generation",
+                opp.id,
+            )
+            return row
+        current_plan = db.scalar(
+            select(LifecycleProfileModel.updated_at).where(
+                LifecycleProfileModel.user_id == user.id
+            )
+        )
+        if current_plan != plan_marker:
+            log.info(
+                "analysis for %s served transient: the lifecycle plan "
+                "changed mid-generation",
                 opp.id,
             )
             return row
@@ -321,6 +341,7 @@ def get_analysis(
     opp = db.get(Opportunity, opportunity_id)
     if opp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown opportunity.")
+    ensure_visible(opp, user)
     return _to_schema(ensure_analysis(db, opp, user))
 
 

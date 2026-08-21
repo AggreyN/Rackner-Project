@@ -184,7 +184,11 @@ export async function getAnalysis(id: string): Promise<Analysis> {
   const deadline = Date.now() + 5 * 60 * 1000;
   for (;;) {
     const res = await fetch(url, { headers: headers() });
-    const generating = res.status === 503 || res.status === 504;
+    // Generation 503s carry Retry-After; outage 503s (database unreachable,
+    // schema not ready) do NOT — those must surface as errors, not spin the
+    // skeleton forever (audit-2 finding). LB 504s mean generation overran.
+    const generating =
+      (res.status === 503 && res.headers.has("retry-after")) || res.status === 504;
     if (Date.now() >= deadline && generating) {
       throw new Error(
         "This analysis is taking longer than usual — it keeps generating in the background; reopen the page in a minute."

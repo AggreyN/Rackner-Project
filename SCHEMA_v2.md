@@ -259,6 +259,10 @@ Unverified quotes still jump to the section but highlight nothing.
 | GET | `/opportunities/{id}/spend` | SpendSummary |
 | GET | `/opportunities/{id}/contact` | ContactResult |
 | POST | `/opportunities/{id}/chat` | `{question, history?}` → ChatAnswer |
+| GET | `/profile/bookmarks` | `["opportunity-id", ...]` newest first — the saved drawer; frontend resolves ids via cached detail |
+| PUT | `/profile/bookmarks/{id}` | 204, idempotent save (404 for unknown/private-to-others ids) |
+| DELETE | `/profile/bookmarks/{id}` | 204, idempotent unsave |
+| POST | `/opportunities/import` | multipart PDF → OpportunitySummary. Ids `imp_<uuid>`; private to the uploader (404 to others, absent from all lists); identical re-upload dedupes to the existing record; metadata model-extracted with filename fallbacks; the grounding document is built at import from the full text |
 
 Plus `/`, `/health`, and `POST /auth/register` (kept for seeding; the UI never
 calls it). Everything except `/auth/login`, `/`, `/health` requires a bearer

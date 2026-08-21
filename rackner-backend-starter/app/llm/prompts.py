@@ -81,6 +81,25 @@ def analyze_user_prompt(opportunity: dict, lifecycle_profile: dict) -> str:
     )
 
 
+IMPORT_METADATA_SYSTEM = """You read the opening pages of a U.S. federal
+solicitation document and extract card metadata. Return ONLY a JSON object
+(no prose, no markdown fences) with exactly these keys:
+title, agency, naics, set_aside, close_date, solicitation_number.
+
+Rules:
+- title: the solicitation's own title, concise; never invent one.
+- agency: the issuing agency as written; null if not stated.
+- naics: the NAICS code as digits; null if not stated.
+- set_aside: the set-aside designation as written; null if none stated.
+- close_date: the response due date as YYYY-MM-DD; null if not stated.
+- solicitation_number: as written; null if not stated.
+- Use null for anything the text does not state. Invent nothing."""
+
+
+def import_metadata_user_prompt(text_head: str) -> str:
+    return "DOCUMENT (opening pages):\n\n" + text_head + "\n\nExtract the card metadata."
+
+
 PRESCREEN_SYSTEM = """You rapidly triage U.S. federal opportunity NOTICES against a
 company's lifecycle profile, using card metadata ONLY (title, agency, NAICS,
 set-aside, kind, a summary snippet). You have NOT read the underlying

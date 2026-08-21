@@ -22,10 +22,12 @@ setup_logging()
 from app.routes import (
     analysis,
     auth,
+    bookmarks,
     chat,
     contacts,
     documents,
     health,
+    imports,
     opportunities,
     profile,
     spend,
@@ -79,7 +81,10 @@ async def _db_schema_broken(request: Request, exc: ProgrammingError):
 
 app.include_router(health.router)
 app.include_router(auth.router)
-app.include_router(profile.router)  # GET /profile, POST /profile/lifecycle
+app.include_router(profile.router)  # GET /profile, POST+DELETE /profile/lifecycle
+app.include_router(bookmarks.router)  # /profile/bookmarks (the saved drawer)
+# /opportunities/import must register BEFORE the {id} routes.
+app.include_router(imports.router)
 # Order matters: /opportunities/search and /opportunities/suggested must be
 # registered BEFORE /opportunities/{id}, or FastAPI matches "search" as an id.
 app.include_router(opportunities.router)
