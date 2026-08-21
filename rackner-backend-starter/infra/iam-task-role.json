@@ -32,10 +32,14 @@
       "Resource": "arn:aws:s3:::rackner-fdi-docs-720682843719-us-east-2-an"
     },
     {
-      "Sid": "LifecyclePlanObjects",
+      "Sid": "UserUploadedObjects",
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-      "Resource": "arn:aws:s3:::rackner-fdi-docs-720682843719-us-east-2-an/lifecycle/*"
+      "Resource": [
+        "arn:aws:s3:::rackner-fdi-docs-720682843719-us-east-2-an/lifecycle/*",
+        "arn:aws:s3:::rackner-fdi-docs-720682843719-us-east-2-an/imported/*"
+      ],
+      "_comment": "lifecycle/* = plan PDFs (POST/DELETE /profile/lifecycle); imported/* = user-imported solicitation PDFs (POST /opportunities/import — put raises on deny, so a missing grant 500s the import)."
     },
     {
       "Sid": "OcrScannedSolicitations",
