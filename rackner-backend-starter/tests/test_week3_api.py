@@ -301,7 +301,11 @@ def test_contact_shape_and_published_address(client, auth_headers, stub_upstream
     body = r.json()
     assert set(body) == {
         "opportunity_id", "name", "title", "office", "email", "confidence", "active_solicitation",
+        # Optional third-party verification (SCHEMA_v2, 2026-08-23) — null
+        # unless EMAIL_VERIFY_PROVIDER is on and the address was inferred.
+        "verification",
     }
+    assert body["verification"] is None  # provider off: no third-party lookups
     assert body["email"] == "jane.doe@army.mil"
     assert body["active_solicitation"] is True
 

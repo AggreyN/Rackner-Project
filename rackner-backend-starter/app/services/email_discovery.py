@@ -8,9 +8,13 @@ Two tiers, in order:
 
   2. Pattern inference, when SAM has no POC. Candidate syntaxes are generated
      from the name and the agency's mail domain and scored by how common each
-     pattern is in federal practice. These are UNVERIFIED guesses: no SMTP
-     probing, no third-party verification service. Confidence is capped well
-     below the published tier so the UI can tell them apart.
+     pattern is in federal practice. By DEFAULT these are UNVERIFIED guesses:
+     no SMTP probing, no third-party lookups. When EMAIL_VERIFY_PROVIDER is
+     set (deliberate, disclosed — see services/email_verify.py), the top
+     candidates are checked against that provider: invalid ones are dropped,
+     a confirmed one may rise to confidence 0.75 — still visibly below the
+     published tier (0.85/0.95) so the UI can always tell them apart.
+     Verification never runs on Tier 1 and never blocks discovery.
 
 PROCUREMENT INTEGRITY
 ---------------------
@@ -25,6 +29,9 @@ from __future__ import annotations
 
 import datetime
 import re
+
+from app import config
+from app.services import email_verify
 
 # Generational suffixes are not surnames — "Doe Jr." must guess doe@, not jr@.
 _SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
@@ -191,14 +198,54 @@ def discover(opportunity: dict) -> dict | None:
     if not guesses:
         return None
     email, prior = guesses[0]
+    # Hard ceiling: a pattern guess must not be presentable as equal to a
+    # published contact.
+    confidence = round(min(prior, 0.5), 2)
+    verification = None
+    if config.EMAIL_VERIFY_PROVIDER != "none":
+        email, confidence, verification = _verified_choice(guesses)
+        if email is None:
+            # Every top candidate came back provably nonexistent. Serving one
+            # anyway would be fabrication with extra steps — empty panel wins.
+            # The marker (vs plain None) lets the route CACHE the negative
+            # result: without it every read re-spends provider credits re-
+            # proving the same invalidity.
+            return {"none_valid": True}
+
     return {
         "opportunity_id": opp_id,
         "name": _TITLE_IN_PARENS.sub("", name_source).strip(),
         "title": _title_from(name_source, "Contracting Officer"),
         "office": office or agency,
         "email": email,
-        # Hard ceiling: this is a pattern guess, never a verified address. It
-        # must not be presentable as equal to a published contact.
-        "confidence": round(min(prior, 0.5), 2),
+        "confidence": confidence,
         "active_solicitation": active,
+        "verification": verification,
     }
+
+
+def _verified_choice(
+    guesses: list[tuple[str, float]],
+) -> tuple[str | None, float, dict | None]:
+    """Run the top candidates through the configured verifier, in rank order.
+
+    invalid → drop and try the next; valid → serve at confidence ≤ 0.75
+    (below Tier 1's 0.85/0.95, above an unchecked guess); anything else
+    (accept_all, unknown, unverified, …) → serve at today's ≤ 0.5 cap.
+    All top candidates invalid → (None, …): no contact at all.
+
+    Confidence is always derived from the SERVED candidate's own pattern
+    prior — a fall-through survivor must not inherit the dropped front-
+    runner's higher number (audit finding: jdoe@ at jane.doe@'s 0.45).
+    """
+    for candidate, prior in guesses[:3]:
+        own = round(min(prior, 0.5), 2)
+        result = email_verify.verify(candidate)
+        if result["status"] == "invalid":
+            continue
+        if result["status"] == "valid":
+            return candidate, round(min(max(own, 0.6) + 0.15, 0.75), 2), result
+        # A real provider answer (accept_all, unknown, …) is worth reporting;
+        # "unverified" (timeout, cap, outage — provider None) is not an answer.
+        return candidate, own, (result if result.get("provider") else None)
+    return None, 0.0, None

@@ -64,6 +64,10 @@ os.environ["LLM_EXTRACT_CONCURRENCY"] = "8"
 # run a failed pass then an immediate successful retry. The backoff regression
 # test opts in by monkeypatching the knob.
 os.environ["ATTACHMENT_RETRY_BACKOFF_MINUTES"] = "0"
+# Third-party email verification stays OFF for the suite (no outbound calls,
+# byte-identical discovery); verification tests opt in by monkeypatching
+# config.EMAIL_VERIFY_PROVIDER.
+os.environ["EMAIL_VERIFY_PROVIDER"] = "none"
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 os.environ.setdefault("JWT_SECRET", "test-only-secret-not-a-real-key")
 
@@ -188,6 +192,9 @@ def _reset_module_throttles():
 
     auth._jwks_cache["miss_refetch_at"] = None
     documents._fetch_backoff.clear()
+    from app.services import email_verify
+
+    email_verify._cap_state.update({"day": None, "count": 0})
     yield
 
 

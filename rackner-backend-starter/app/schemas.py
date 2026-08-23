@@ -12,6 +12,7 @@ Note the two things that most often get written back to v1 by mistake:
 
 from __future__ import annotations
 
+import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -171,6 +172,15 @@ class SpendSummary(BaseModel):
 # --- contact -----------------------------------------------------------------
 
 
+class ContactVerification(BaseModel):
+    """Third-party check of an INFERRED address. Absent (null) when the
+    feature is off or the contact came published from SAM."""
+
+    provider: str
+    status: str  # valid | accept_all | webmail | disposable | unknown | invalid | unverified
+    checked_at: datetime.datetime | None = None
+
+
 class ContactResult(BaseModel):
     opportunity_id: str
     name: str
@@ -179,6 +189,7 @@ class ContactResult(BaseModel):
     email: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     active_solicitation: bool = False
+    verification: ContactVerification | None = None
 
 
 # --- assistant ---------------------------------------------------------------

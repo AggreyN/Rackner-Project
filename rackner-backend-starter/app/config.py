@@ -108,6 +108,19 @@ ANALYSIS_PREWARM = os.getenv("ANALYSIS_PREWARM", "true").lower() == "true"
 # SAM.gov Get Opportunities (data.gov key). Unset → those routes 503 cleanly.
 SAM_GOV_API_KEY = get_secret("SAM_GOV_API_KEY", "")
 
+# --- Third-party email verification (contact discovery, Tier 2 only) ---
+# "none" (default) leaves discovery byte-identical to the no-verifier build.
+# Providers: "generect" (POST api.generect.com email/validate) or "hunter"
+# (GET api.hunter.io email-verifier). Verification NEVER runs on Tier 1
+# (SAM-published) contacts and NEVER blocks discovery — every failure path
+# degrades to "unverified" and today's behavior.
+EMAIL_VERIFY_PROVIDER = os.getenv("EMAIL_VERIFY_PROVIDER", "none").lower()
+GENERECT_API_KEY = get_secret("GENERECT_API_KEY", "")
+HUNTER_API_KEY = get_secret("HUNTER_API_KEY", "")
+EMAIL_VERIFY_TIMEOUT_S = float(os.getenv("EMAIL_VERIFY_TIMEOUT_S", "5"))
+EMAIL_VERIFY_DAILY_CAP = int(os.getenv("EMAIL_VERIFY_DAILY_CAP", "50"))
+EMAIL_VERIFY_TTL_DAYS = float(os.getenv("EMAIL_VERIFY_TTL_DAYS", "30"))
+
 # Full-document ingestion: a notice's attachments (resourceLinks) are fetched
 # on the document-build path so analysis/chat ground against the whole
 # solicitation package, not just the description. Each file download bills the

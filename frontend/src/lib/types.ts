@@ -181,6 +181,14 @@ export interface SourceSection {
   page: number;
 }
 
+// Optional third-party check of an INFERRED contact address (feature-flagged
+// on the backend; null when off or when the contact came published from SAM).
+export interface ContactVerification {
+  provider: string; // "generect" | "hunter"
+  status: string; // valid | accept_all | webmail | disposable | unknown | invalid | unverified
+  checked_at: string | null;
+}
+
 export interface SourceDocument {
   opportunity_id: string;
   label: string; // e.g. "Source solicitation · HC1084-26-R-0042"
@@ -221,6 +229,7 @@ export interface ContactResult {
   /** Procurement Integrity Act guard: when true the UI must show the
    *  outreach-restrictions flag and require a human in the loop. */
   active_solicitation: boolean;
+  verification?: ContactVerification | null;
 }
 
 // ---------- chatbot ----------

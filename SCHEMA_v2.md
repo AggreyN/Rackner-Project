@@ -225,6 +225,7 @@ original. Unverified quotes are returned with `verified=false`, never dropped.
 | `email` | string | most probable candidate |
 | `confidence` | number | 0–1 from the verifier |
 | `active_solicitation` | boolean | Procurement Integrity Act guard — true means the UI must show outreach restrictions and require a human in the loop |
+| `verification` | object \| null | Third-party check of an INFERRED address: `{provider, status, checked_at}`. `status` ∈ valid · accept_all · webmail · disposable · unknown · invalid · unverified. Always null when `EMAIL_VERIFY_PROVIDER=none` (the default) or when the contact came published from SAM — published addresses are never third-party-checked. A `valid` inferred address may carry confidence up to 0.75, still below the published tier (0.85/0.95). |
 
 ---
 

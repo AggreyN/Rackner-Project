@@ -103,6 +103,16 @@ Stack: Next.js (AWS Amplify) · FastAPI (ECS) · PostgreSQL (RDS) · Claude Sonn
   contact means "no contact found," and active solicitations carry a
   **Procurement Integrity Act guard** requiring a human in the loop before
   outreach.
+- **Optional, disclosed email verification** (off by default): when
+  `EMAIL_VERIFY_PROVIDER` is set (Generect or Hunter), *inferred* addresses
+  — never SAM-published ones — are checked against the provider before
+  serving. Provably-nonexistent candidates are dropped; a confirmed one may
+  rise to confidence 0.75, still visibly below the published tier. Every
+  verification failure degrades to today's unverified behavior (a hard
+  daily call cap and per-contact TTL bound the spend), and the response
+  carries a `verification {provider, status, checked_at}` field so the UI
+  can say exactly what was checked and when. There are **no third-party
+  lookups of any kind while the flag is off.**
 
 ## 8 · Security & platform
 

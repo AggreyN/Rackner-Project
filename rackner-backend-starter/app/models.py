@@ -273,6 +273,14 @@ class Contact(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     # Procurement Integrity Act guard: true while the solicitation is active.
     active_solicitation: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Third-party verification of an INFERRED address (services/email_verify):
+    # normalized status, which provider said so, and when — null when the
+    # feature is off or the contact came published from SAM (Tier 1).
+    verification_status: Mapped[str | None] = mapped_column(String(20), default=None)
+    verification_provider: Mapped[str | None] = mapped_column(String(20), default=None)
+    verification_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
