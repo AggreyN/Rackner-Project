@@ -240,7 +240,12 @@ export default function OpportunityPage({ params }: { params: Promise<{ id: stri
         >
           <SourcePane
             doc={doc}
-            unavailable={docMissing}
+            // A recompete has no RFP yet by definition. The backend still
+            // builds a one-line document from the award's USAspending
+            // description, so docMissing is false in production — without
+            // the kind check the pane shows that lone line instead of the
+            // "no solicitation posted yet" explanation written for this case.
+            unavailable={docMissing || opp?.kind === "expiring_award"}
             cite={cite}
             collapsed={collapsed}
             onToggle={() => setCollapsed(!collapsed)}

@@ -35,17 +35,22 @@ test("recompete window returns only awards expiring in 12-18 months", async ({ p
 test("the window excludes awards that are too early or too late", async ({ page }) => {
   await signIn(page);
 
+  // allInnerTexts() is a one-shot snapshot: taken a frame early it captures
+  // the PREVIOUS window's cards and fails under parallel load. expect.poll
+  // re-reads until the assertion holds (or times out), which is what makes
+  // these two transitions reliable rather than usually-reliable.
+  const cardText = async () =>
+    (await page.getByTestId("opportunity-card").allInnerTexts()).join(" ");
+
   // ≤24mo includes the 8-month and 22-month awards...
   await selectTiming(page, "expiring_soon");
-  const wide = await page.getByTestId("opportunity-card").allInnerTexts();
-  expect(wide.join(" ")).toContain("Cyber Range Sustainment"); // 8 months — too late
-  expect(wide.join(" ")).toContain("DHS Zero-Trust"); // 22 months — too early
+  await expect.poll(cardText).toContain("Cyber Range Sustainment"); // 8 months — too late
+  await expect.poll(cardText).toContain("DHS Zero-Trust"); // 22 months — too early
 
   // ...the 12–18 window drops both.
   await selectTiming(page, "recompete");
-  const narrow = await page.getByTestId("opportunity-card").allInnerTexts();
-  expect(narrow.join(" ")).not.toContain("Cyber Range Sustainment");
-  expect(narrow.join(" ")).not.toContain("DHS Zero-Trust");
+  await expect.poll(cardText).not.toContain("Cyber Range Sustainment");
+  await expect.poll(cardText).not.toContain("DHS Zero-Trust");
 });
 
 test("in-window awards are tagged as the capture window", async ({ page }) => {
