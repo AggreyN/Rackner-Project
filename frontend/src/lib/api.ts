@@ -95,6 +95,32 @@ export async function login(email: string, password: string): Promise<{ access_t
   );
 }
 
+// ---------- bookmarks (saved opportunities) ----------
+
+/** False when running against the in-browser mock, where there is no server
+ *  to sync saves to — lib/bookmarks.ts then stays purely local. */
+export const HAS_BACKEND = !USE_MOCK;
+
+export async function getBookmarks(): Promise<string[]> {
+  return json(await fetch(`${BASE}/profile/bookmarks`, { headers: headers() }));
+}
+
+export async function saveBookmark(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/profile/bookmarks/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res));
+}
+
+export async function removeBookmark(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/profile/bookmarks/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res));
+}
+
 // ---------- profile / lifecycle plan ----------
 
 export async function getProfile(email: string): Promise<Profile> {

@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getOpportunity } from "@/lib/api";
-import { useBookmarks } from "@/lib/bookmarks";
+import { hydrateBookmarks, useBookmarks } from "@/lib/bookmarks";
 import type { OpportunitySummary } from "@/lib/types";
 import BookmarkStar from "./BookmarkStar";
 import ScoreBadge from "./ScoreBadge";
@@ -17,6 +17,13 @@ export default function SavedDrawer() {
   const ids = useBookmarks();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<OpportunitySummary[] | null>(null);
+
+  // This tab is on every signed-in screen, so it is where the server's saved
+  // list gets pulled in — otherwise stars saved on another device (or by an
+  // admin) would never appear here.
+  useEffect(() => {
+    void hydrateBookmarks();
+  }, []);
 
   // Resolve ids → summaries whenever the drawer is open. Unresolvable ids
   // (e.g. an imported doc cleared by a mock reset) are dropped, not fatal.
