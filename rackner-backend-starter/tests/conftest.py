@@ -68,6 +68,9 @@ os.environ["ATTACHMENT_RETRY_BACKOFF_MINUTES"] = "0"
 # byte-identical discovery); verification tests opt in by monkeypatching
 # config.EMAIL_VERIFY_PROVIDER.
 os.environ["EMAIL_VERIFY_PROVIDER"] = "none"
+# Runway floor off for the legacy suite (0 = exactly the old closed-notice
+# exclusion); the runway tests opt in by monkeypatching the knob.
+os.environ["SAM_MIN_RUNWAY_DAYS"] = "0"
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 os.environ.setdefault("JWT_SECRET", "test-only-secret-not-a-real-key")
 

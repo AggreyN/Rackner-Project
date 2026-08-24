@@ -45,13 +45,21 @@ _KIND_BY_TYPE = {
     "ssale": "solicitation",
 }
 
-# SCHEMA_v2 kind -> SAM `ptype` code, for server-side filtering.
+# SCHEMA_v2 kind -> SAM `ptype` code, for server-side filtering. "solicitation"
+# includes k (Combined Synopsis/Solicitation): SAM's own UI folds it into the
+# Solicitation bucket, and our ingest maps it to the same kind — RFQ-style
+# combined notices are exactly what a BD person wants to see.
 _PTYPE_BY_KIND = {
-    "solicitation": "o",
+    "solicitation": "o,k",
     "presolicitation": "p",
     "sources_sought": "r",
     "baa": "s",
 }
+
+# With no explicit kind filter, restrict to the ACTIONABLE notice types
+# (Kaliza's filter spec): Solicitation, Combined Synopsis/Solicitation,
+# Sources Sought. Award notices, special notices, etc. are noise for BD.
+_DEFAULT_PTYPE = "o,k,r"
 
 _TAGS = re.compile(r"<[^>]+>")
 
@@ -179,8 +187,7 @@ def search(
     # Only SAM-backed kinds are meaningful here; expiring_award comes from
     # USAspending and is filtered out by the caller.
     ptypes = [_PTYPE_BY_KIND[k] for k in (kinds or []) if k in _PTYPE_BY_KIND]
-    if ptypes:
-        params["ptype"] = ",".join(ptypes)
+    params["ptype"] = ",".join(ptypes) if ptypes else _DEFAULT_PTYPE
 
     payload = get_json(SEARCH_URL, service=SERVICE, params=params)
     return [to_summary(r, today=today) for r in payload.get("opportunitiesData", [])]

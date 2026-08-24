@@ -125,6 +125,13 @@ EMAIL_VERIFY_TTL_DAYS = float(os.getenv("EMAIL_VERIFY_TTL_DAYS", "30"))
 # on the document-build path so analysis/chat ground against the whole
 # solicitation package, not just the description. Each file download bills the
 # SAM key once, ever (build-once caching). Caps bound cost and memory.
+# Runway floor (Kaliza's filter spec): notices whose response deadline is
+# sooner than this many days out are dropped from search/suggested — not
+# enough time to prepare a strong response. 0 disables the floor entirely.
+# Dateless notices (common for Sources Sought) are always KEPT; the recompete
+# radar (expiring awards) and imported opportunities are never filtered.
+SAM_MIN_RUNWAY_DAYS = int(os.getenv("SAM_MIN_RUNWAY_DAYS", "90"))
+
 SAM_MAX_ATTACHMENTS = int(os.getenv("SAM_MAX_ATTACHMENTS", "8"))
 # After a fetch pass that could NOT resolve every link (dead host, quota stop),
 # wait this long before re-running a pass — otherwise every document read

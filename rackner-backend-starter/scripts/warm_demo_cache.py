@@ -73,7 +73,11 @@ def main() -> int:
             if RATE_LIMIT_MARKER in detail:
                 sam_dead = True
             continue
-        rows = [x for x in r.json() if x.get("kind") in ("solicitation", "baa", "combined_synopsis")]
+        # The backend's default search now returns Solicitation, Combined
+        # Synopsis/Solicitation, and Sources Sought (ptype o,k,r) — BAAs no
+        # longer come back by default, and sources_sought (often dateless =
+        # demo-safe) is exactly worth warming.
+        rows = [x for x in r.json() if x.get("kind") in ("solicitation", "sources_sought")]
         print(f"search '{term}': {len(rows)} notices (cached)")
         for row in rows:
             candidates[row["id"]] = row

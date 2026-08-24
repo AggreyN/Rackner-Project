@@ -277,7 +277,33 @@ def _ledger_stamp(db: Session, key: str) -> None:
         db.rollback()  # concurrent request recorded the same key — equally fresh
 
 
-def _cached_sam_rows(db: Session, *, query: str, kinds: list[str], limit: int) -> list[dict]:
+def _runway_ok(row: dict, today: datetime.date | None = None) -> bool:
+    """Kaliza's runway floor: a notice closing sooner than SAM_MIN_RUNWAY_DAYS
+    is not actionable — filtered before scoring and before persisting.
+    Dateless notices (the common Sources Sought shape) are kept; the recompete
+    radar and imported opportunities never pass through this predicate."""
+    if config.SAM_MIN_RUNWAY_DAYS <= 0:
+        return True
+    close = row.get("close_date")
+    if not close:
+        return True
+    if isinstance(close, str):
+        try:
+            close = datetime.date.fromisoformat(close[:10])
+        except ValueError:
+            return True  # unparseable — keep rather than silently hide
+    today = today or datetime.date.today()
+    return close >= today + datetime.timedelta(days=config.SAM_MIN_RUNWAY_DAYS)
+
+
+def _cached_sam_rows(
+    db: Session,
+    *,
+    query: str,
+    kinds: list[str],
+    limit: int,
+    apply_runway_floor: bool = True,
+) -> list[dict]:
     """Serve SAM rows from the cache: the freshness-window replay AND the
     SAM-down fallback.
 
@@ -289,12 +315,22 @@ def _cached_sam_rows(db: Session, *, query: str, kinds: list[str], limit: int) -
     replays (the dashboard) are limited to rows fetched inside the freshness
     window, so one user's old niche searches don't become everyone's feed.
     """
-    wanted = [k for k in kinds if k in SAM_KINDS] or list(SAM_KINDS)
+    # No explicit kinds -> mirror the live default (_DEFAULT_PTYPE o,k,r):
+    # solicitation + sources_sought. Serving broader kinds from cache than the
+    # live fetch returns made identical consecutive searches flip-flop
+    # (review finding). Presolicitation/baa stay reachable by explicit filter.
+    wanted = [k for k in kinds if k in SAM_KINDS] or ["solicitation", "sources_sought"]
     today = datetime.date.today()
+    # Runway floor: with SAM_MIN_RUNWAY_DAYS=0 this degrades to exactly the
+    # old closed-notice exclusion (close_date >= today). Dateless rows stay.
+    # apply_runway_floor=False keeps only the closed-notice exclusion — used
+    # to tell "nothing cached for this query" from "cached but all floored".
+    floor = max(config.SAM_MIN_RUNWAY_DAYS, 0) if apply_runway_floor else 0
+    cutoff = today + datetime.timedelta(days=floor)
     stmt = select(Opportunity).where(
         Opportunity.owner_id.is_(None),  # imported docs are private, never listed
         Opportunity.kind.in_(wanted),
-        (Opportunity.close_date.is_(None)) | (Opportunity.close_date >= today),
+        (Opportunity.close_date.is_(None)) | (Opportunity.close_date >= cutoff),
     )
     if query:
         words = [w for w in query.split() if len(w) >= 3] or [query.strip()]
@@ -360,9 +396,29 @@ def _collect(
             if cached or not query:
                 results.extend(cached)
                 replayed = True
+            elif _cached_sam_rows(
+                db, query=query, kinds=kinds, limit=1, apply_runway_floor=False
+            ):
+                # Rows for this query ARE cached — every one just fails the
+                # runway floor. That is a legitimately empty page, not an
+                # ilike miss: falling through would burn a live SAM call on
+                # every repeat of this query for the whole TTL.
+                replayed = True
         if not replayed:
             try:
-                results.extend(samgov.search(query, kinds=sam_kinds, limit=limit))
+                # With the runway floor on, fetch a FULL page (one SAM call
+                # costs the same regardless of limit): a small page could be
+                # entirely near-close rows, leaving zero survivors.
+                fetch_limit = 100 if config.SAM_MIN_RUNWAY_DAYS > 0 else limit
+                fetched = samgov.search(query, kinds=sam_kinds, limit=fetch_limit)
+                # Persist the WHOLE page BEFORE the runway filter — the
+                # freshness ledger's replay reads from the cache, and an
+                # unpersisted page would make every repeat of this query a
+                # fresh live call (review finding: quota burn). The floor is
+                # a serve-time filter, never a cache filter; dateless notices
+                # (the common Sources Sought shape) always survive it.
+                _cache(db, fetched)
+                results.extend([r for r in fetched if _runway_ok(r)][:limit])
                 _record_sam_fetch(db, query, sam_kinds)
             except UpstreamError as exc:
                 failures.append(exc)

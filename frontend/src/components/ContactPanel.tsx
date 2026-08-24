@@ -25,10 +25,18 @@ export default function ContactPanel({ contact }: { contact: ContactResult }) {
           {initials}
         </div>
         <div className="min-w-0">
-          <b className="text-sm text-[#16324f]">{contact.name}</b>
-          <div className="text-xs text-[#51606f]">
-            {contact.title} · {contact.office}
+          {/* Contracting office and point of contact share ONE line
+              (Kaliza's filter-changes doc) — the title stays beneath. */}
+          <div className="office-contact-line text-sm leading-snug">
+            {contact.office && (
+              <>
+                <span className="office text-[#51606f]">{contact.office}</span>
+                <span className="separator text-[#51606f]"> · </span>
+              </>
+            )}
+            <b className="poc text-[#16324f]">{contact.name || "No contact listed"}</b>
           </div>
+          <div className="text-xs text-[#51606f]">{contact.title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="rounded-md bg-[#f5f7f9] px-2 py-1 font-mono text-[12.5px] text-[#16324f]">
               {contact.email}
